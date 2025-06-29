@@ -8,8 +8,19 @@ import os
 import logging
 from typing import Optional, Dict, Any
 from enum import Enum
+from pathlib import Path
+from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
+
+# Load .env file from project root if it exists
+env_path = Path(__file__).parent.parent.parent.parent / '.env'
+if env_path.exists():
+    load_dotenv(env_path)
+    logger.info(f"Loaded environment from {env_path}")
+else:
+    # Try loading from current directory as fallback
+    load_dotenv()
 
 class ServiceTier(Enum):
     """Service tier levels"""

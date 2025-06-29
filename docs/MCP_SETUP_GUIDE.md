@@ -8,24 +8,22 @@
 
 ## 🚀 Setup Steps
 
-### Step 1: Update the MCP Configuration
+### Step 1: Configure Your API Key
 
-The configuration has been added to your `claude_desktop_config.json`. You need to:
+CodebaseIQ Pro now automatically loads configuration from the `.env` file:
 
-1. **Add your OpenAI API key**:
-   - Open: `/Users/chrisryviss/Library/Application Support/Claude/claude_desktop_config.json`
-   - Find the `codebase-iq-pro` section
-   - Replace `YOUR_OPENAI_API_KEY_HERE` with your actual OpenAI API key
-
-2. **Optional: Add premium keys to the environment section**:
-   ```json
-   "env": {
-     "PYTHONPATH": "/Users/chrisryviss/codebase_iq_pro/src",
-     "OPENAI_API_KEY": "sk-your-actual-key-here",
-     "VOYAGE_API_KEY": "your-voyage-key",  // Optional
-     "PINECONE_API_KEY": "your-pinecone-key"  // Optional
-   }
+1. **Edit the .env file**:
+   ```bash
+   cd /Users/chrisryviss/codebase_iq_pro
+   nano .env  # or use your favorite editor
    ```
+
+2. **Add your OpenAI API key**:
+   ```
+   OPENAI_API_KEY=sk-your-actual-key-here
+   ```
+
+3. **That's it!** No need to edit any JSON configs or set environment variables elsewhere.
 
 ### Step 2: Install Dependencies
 

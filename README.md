@@ -47,7 +47,7 @@ CodebaseIQ Pro is an advanced Model Context Protocol (MCP) server that provides 
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/yourusername/codebase-iq-pro.git
+   git clone https://github.com/chatcbdai/codebase-iq-pro.git
    cd codebase-iq-pro
    ```
 
@@ -56,29 +56,20 @@ CodebaseIQ Pro is an advanced Model Context Protocol (MCP) server that provides 
    python setup.py
    ```
 
-3. **Configure API keys**
-   ```bash
-   # Edit .env file
-   OPENAI_API_KEY=your-openai-api-key  # Required
-   
-   # Optional premium features
-   VOYAGE_API_KEY=your-voyage-key      # Better embeddings
-   PINECONE_API_KEY=your-pinecone-key  # Cloud vector DB
-   ```
+3. **Configure API key** (One-time setup)
+   - Edit the `.env` file
+   - Replace `your-openai-api-key-here` with your actual OpenAI API key
+   - That's it! The key will be automatically loaded from the .env file
 
-4. **Configure VS Code**
+4. **Configure Claude Code** (Already done!)
    
-   Add to your VS Code `settings.json`:
-   ```json
-   {
-     "mcp.servers": {
-       "codebase-iq-pro": {
-         "command": "python",
-         "args": ["/path/to/codebaseiq_pro.py"]
-       }
-     }
-   }
-   ```
+   If you're using Claude Desktop:
+   - CodebaseIQ Pro is already configured in your claude_desktop_config.json
+   - Just restart Claude Desktop to use it
+   
+   For Claude Code in VS Code:
+   - Run: `claude mcp list` to verify it's installed
+   - Start a new Claude Code session to access the tools
 
 5. **Start using with Claude**
    ```

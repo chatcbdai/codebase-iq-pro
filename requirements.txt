@@ -3,6 +3,9 @@ mcp>=0.1.0
 aiofiles>=23.0.0
 asyncio>=3.4.3
 
+# Environment Configuration
+python-dotenv>=1.0.0
+
 # AST and Code Analysis
 tree-sitter>=0.20.0
 tree-sitter-python>=0.20.0
