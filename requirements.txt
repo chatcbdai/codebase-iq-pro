@@ -1,0 +1,47 @@
+# Core MCP Dependencies
+mcp>=0.1.0
+aiofiles>=23.0.0
+asyncio>=3.4.3
+
+# AST and Code Analysis
+tree-sitter>=0.20.0
+tree-sitter-python>=0.20.0
+tree-sitter-javascript>=0.20.0
+tree-sitter-typescript>=0.20.0
+tree-sitter-java>=0.20.0
+tree-sitter-go>=0.20.0
+networkx>=3.0
+
+# Security and Encryption
+cryptography>=41.0.0
+
+# File Watching
+watchdog>=3.0.0
+
+# Data Processing
+numpy>=1.24.0
+msgpack>=1.0.0
+
+# Vector Databases
+qdrant-client>=1.7.0  # Free/local option
+pinecone-client>=3.0.0  # Premium option (optional)
+
+# Embeddings
+openai>=1.0.0  # Default (required)
+voyageai>=0.2.0  # Premium option (optional)
+
+# Caching (optional - will use dict if not available)
+redis>=5.0.0
+
+# Web/API
+aiohttp>=3.9.0
+pyjwt>=2.8.0
+
+# Development/Testing (optional)
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+black>=23.0.0
+flake8>=6.0.0
+
+# Documentation Generation (optional)
+pydantic>=2.0.0
