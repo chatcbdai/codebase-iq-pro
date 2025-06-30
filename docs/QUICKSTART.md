@@ -47,22 +47,11 @@ PINECONE_API_KEY=your-pinecone-api-key  # Cloud vector DB
 REDIS_URL=redis://localhost:6379        # Distributed cache
 ```
 
-### 4. VS Code Integration
+### 4. Verify Installation
 
-Add to your VS Code `settings.json` or workspace `.vscode/mcp.json`:
-
-```json
-{
-  "mcp.servers": {
-    "codebase-iq-pro": {
-      "command": "python",
-      "args": ["/absolute/path/to/codebase-iq-pro.py"],
-      "env": {
-        "PYTHONPATH": "/absolute/path/to/codebase_iq_pro"
-      }
-    }
-  }
-}
+```bash
+claude mcp list
+# Should show: codebase-iq-pro
 ```
 
 ### 5. Start Using CodebaseIQ Pro
@@ -204,9 +193,9 @@ find_similar_code entity_path: "src/main.py", similarity_threshold: 0.8
 
 ## 📚 Next Steps
 
-1. Read the [architecture documentation](enhanced-architecture.md)
-2. Check the [implementation guide](implementation-guide.md)
-3. Review [technical details](technical-deep-dive.md)
-4. Join discussions at the GitHub repository
+1. Read the [Usage Guide](USAGE.md) for detailed examples
+2. Check the [MCP Setup Guide](MCP_SETUP_GUIDE.md) for configuration
+3. Review [technical architecture](enhanced-architecture.md)
+4. See [implementation details](implementation-guide.md)
 
 Happy coding with CodebaseIQ Pro! 🎉

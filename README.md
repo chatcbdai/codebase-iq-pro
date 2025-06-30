@@ -72,11 +72,21 @@ CodebaseIQ Pro is an advanced Model Context Protocol (MCP) server that provides 
    - Start a new Claude Code session to access the tools
 
 5. **Start using with Claude**
+   
+   In VS Code with your project open:
+   ```bash
+   claude  # Start Claude Code in VS Code terminal
    ```
-   analyze_codebase path: "."
+   
+   Then use these commands:
+   ```
+   analyze_codebase path: "."  # Analyzes your VS Code workspace
    semantic_code_search query: "authentication logic"
    get_analysis_summary
    ```
+   
+   **Note**: When using `path: "."`, it analyzes your current VS Code workspace, 
+   not the CodebaseIQ Pro installation directory!
 
 ## 📖 Documentation
 

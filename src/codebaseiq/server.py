@@ -89,10 +89,10 @@ class CodebaseIQProServer:
         # Vector Database
         try:
             self.vector_db = create_vector_db(self.config.vector_db_config)
-            asyncio.create_task(self.vector_db.initialize())
-            logger.info(f"✅ Vector database initialized: {self.config.vector_db_config['type']}")
+            # Will initialize later in async context
+            logger.info(f"✅ Vector database created: {self.config.vector_db_config['type']}")
         except Exception as e:
-            logger.error(f"Failed to initialize vector database: {e}")
+            logger.error(f"Failed to create vector database: {e}")
             self.vector_db = None
             
         # Embedding Service
@@ -138,25 +138,132 @@ class CodebaseIQProServer:
     def _setup_tools(self):
         """Setup MCP tools"""
         
-        @self.server.tool()
-        async def analyze_codebase(
+        @self.server.list_tools()
+        async def handle_list_tools() -> list[types.Tool]:
+            """List available tools"""
+            return [
+                types.Tool(
+                    name="analyze_codebase",
+                    description="Analyze a codebase with intelligent multi-agent orchestration.",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "path": {"type": "string", "description": "Path to the codebase directory"},
+                            "analysis_type": {"type": "string", "enum": ["full", "security_focus", "performance_focus", "quick"], "default": "full"},
+                            "enable_embeddings": {"type": "boolean", "default": True},
+                            "focus_areas": {"type": "array", "items": {"type": "string"}}
+                        },
+                        "required": ["path"]
+                    }
+                ),
+                types.Tool(
+                    name="semantic_code_search",
+                    description="Search for code using natural language queries.",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "query": {"type": "string", "description": "Natural language search query"},
+                            "top_k": {"type": "integer", "default": 10},
+                            "filters": {"type": "object"},
+                            "search_type": {"type": "string", "enum": ["semantic", "keyword", "hybrid"], "default": "semantic"}
+                        },
+                        "required": ["query"]
+                    }
+                ),
+                types.Tool(
+                    name="find_similar_code",
+                    description="Find code similar to a given file or function.",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "entity_path": {"type": "string", "description": "Path to the code entity"},
+                            "top_k": {"type": "integer", "default": 5},
+                            "similarity_threshold": {"type": "number", "default": 0.7}
+                        },
+                        "required": ["entity_path"]
+                    }
+                ),
+                types.Tool(
+                    name="get_analysis_summary",
+                    description="Get a summary of the current analysis results.",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {}
+                    }
+                ),
+                types.Tool(
+                    name="get_danger_zones",
+                    description="Get list of danger zones (high-risk code areas) from security analysis.",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {}
+                    }
+                ),
+                types.Tool(
+                    name="get_dependencies",
+                    description="Get dependency analysis results.",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {}
+                    }
+                )
+            ]
+        
+        @self.server.call_tool()
+        async def handle_call_tool(
+            name: str, arguments: dict | None
+        ) -> list[types.TextContent | types.ImageContent | types.EmbeddedResource]:
+            """Handle tool calls"""
+            
+            if name == "analyze_codebase":
+                result = await self._analyze_codebase(
+                    path=arguments.get("path"),
+                    analysis_type=arguments.get("analysis_type", "full"),
+                    enable_embeddings=arguments.get("enable_embeddings", True),
+                    focus_areas=arguments.get("focus_areas")
+                )
+                return [types.TextContent(type="text", text=json.dumps(result, indent=2))]
+                
+            elif name == "semantic_code_search":
+                result = await self._semantic_code_search(
+                    query=arguments.get("query"),
+                    top_k=arguments.get("top_k", 10),
+                    filters=arguments.get("filters"),
+                    search_type=arguments.get("search_type", "semantic")
+                )
+                return [types.TextContent(type="text", text=json.dumps(result, indent=2))]
+                
+            elif name == "find_similar_code":
+                result = await self._find_similar_code(
+                    entity_path=arguments.get("entity_path"),
+                    top_k=arguments.get("top_k", 5),
+                    similarity_threshold=arguments.get("similarity_threshold", 0.7)
+                )
+                return [types.TextContent(type="text", text=json.dumps(result, indent=2))]
+                
+            elif name == "get_analysis_summary":
+                result = await self._get_analysis_summary()
+                return [types.TextContent(type="text", text=json.dumps(result, indent=2))]
+                
+            elif name == "get_danger_zones":
+                result = await self._get_danger_zones()
+                return [types.TextContent(type="text", text=json.dumps(result, indent=2))]
+                
+            elif name == "get_dependencies":
+                result = await self._get_dependencies()
+                return [types.TextContent(type="text", text=json.dumps(result, indent=2))]
+                
+            else:
+                raise ValueError(f"Unknown tool: {name}")
+        
+    async def _analyze_codebase(
+            self,
             path: str,
             analysis_type: str = "full",
             enable_embeddings: bool = True,
             focus_areas: Optional[List[str]] = None
         ) -> Dict[str, Any]:
-            """
-            Analyze a codebase with intelligent multi-agent orchestration.
-            
-            Args:
-                path: Path to the codebase directory
-                analysis_type: Type of analysis - "full", "security_focus", "performance_focus", "quick"
-                enable_embeddings: Whether to create vector embeddings (requires vector DB)
-                focus_areas: Specific areas to focus on
-                
-            Returns:
-                Comprehensive analysis results from all agents
-            """
+            """Internal method to analyze a codebase"""
             try:
                 root_path = Path(path).resolve()
                 if not root_path.exists():
@@ -223,25 +330,14 @@ class CodebaseIQProServer:
                     'path': path
                 }
                 
-        @self.server.tool()
-        async def semantic_code_search(
+    async def _semantic_code_search(
+            self,
             query: str,
             top_k: int = 10,
             filters: Optional[Dict[str, Any]] = None,
             search_type: str = "semantic"
         ) -> Dict[str, Any]:
-            """
-            Search for code using natural language queries.
-            
-            Args:
-                query: Natural language search query
-                top_k: Number of results to return
-                filters: Optional filters (e.g., {"type": "function"})
-                search_type: Type of search - "semantic", "keyword", or "hybrid"
-                
-            Returns:
-                List of matching code entities with relevance scores
-            """
+            """Internal method to search for code using natural language queries"""
             if not self.vector_db:
                 return {
                     'error': 'Vector search not available. Set PINECONE_API_KEY or use Qdrant.',
@@ -292,23 +388,13 @@ class CodebaseIQProServer:
                     'query': query
                 }
                 
-        @self.server.tool()
-        async def find_similar_code(
+    async def _find_similar_code(
+            self,
             entity_path: str,
             top_k: int = 5,
             similarity_threshold: float = 0.7
         ) -> Dict[str, Any]:
-            """
-            Find code similar to a given file or function.
-            
-            Args:
-                entity_path: Path to the code entity
-                top_k: Number of similar items to return
-                similarity_threshold: Minimum similarity score (0-1)
-                
-            Returns:
-                List of similar code entities
-            """
+            """Internal method to find code similar to a given file or function"""
             if not self.vector_db:
                 return {
                     'error': 'Vector search not available.',
@@ -361,14 +447,8 @@ class CodebaseIQProServer:
                     'entity_path': entity_path
                 }
                 
-        @self.server.tool()
-        async def get_analysis_summary() -> Dict[str, Any]:
-            """
-            Get a summary of the current analysis results.
-            
-            Returns:
-                Summary of key findings from all agents
-            """
+    async def _get_analysis_summary(self) -> Dict[str, Any]:
+            """Internal method to get a summary of the current analysis results"""
             if not self.current_analysis:
                 return {
                     'error': 'No analysis performed yet. Run analyze_codebase first.'
@@ -385,14 +465,8 @@ class CodebaseIQProServer:
             
             return summary
             
-        @self.server.tool()
-        async def get_danger_zones() -> Dict[str, Any]:
-            """
-            Get list of danger zones (high-risk code areas) from security analysis.
-            
-            Returns:
-                List of files with high danger levels and their vulnerabilities
-            """
+    async def _get_danger_zones(self) -> Dict[str, Any]:
+            """Internal method to get list of danger zones from security analysis"""
             if not self.current_analysis:
                 return {
                     'error': 'No analysis performed yet. Run analyze_codebase first.'
@@ -407,14 +481,8 @@ class CodebaseIQProServer:
                 'security_score': security_results.get('security_score', 'N/A')
             }
             
-        @self.server.tool()
-        async def get_dependencies() -> Dict[str, Any]:
-            """
-            Get dependency analysis results.
-            
-            Returns:
-                Dependency graph and external package information
-            """
+    async def _get_dependencies(self) -> Dict[str, Any]:
+            """Internal method to get dependency analysis results"""
             if not self.current_analysis:
                 return {
                     'error': 'No analysis performed yet. Run analyze_codebase first.'
@@ -482,6 +550,16 @@ class CodebaseIQProServer:
         else:
             return 'module'
             
+    async def _initialize_async_services(self):
+        """Initialize async services like vector database"""
+        if self.vector_db:
+            try:
+                await self.vector_db.initialize()
+                logger.info(f"✅ Vector database initialized successfully")
+            except Exception as e:
+                logger.error(f"Failed to initialize vector database: {e}")
+                self.vector_db = None
+                
     async def run(self):
         """Start the MCP server"""
         print("🚀 CodebaseIQ Pro Server starting...")
@@ -501,8 +579,25 @@ class CodebaseIQProServer:
                     
         print("\n📡 Ready to analyze codebases!")
         
+        # Initialize async services
+        await self._initialize_async_services()
+        
+        from mcp.server.models import InitializationOptions
+        from mcp.server.lowlevel.server import NotificationOptions
+        
         async with stdio_server() as (read_stream, write_stream):
-            await self.server.run(read_stream, write_stream)
+            await self.server.run(
+                read_stream,
+                write_stream,
+                InitializationOptions(
+                    server_name="codebase-iq-pro",
+                    server_version="1.0.0",
+                    capabilities=self.server.get_capabilities(
+                        notification_options=NotificationOptions(),
+                        experimental_capabilities={},
+                    ),
+                ),
+            )
 
 
 

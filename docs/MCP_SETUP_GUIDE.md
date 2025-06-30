@@ -52,12 +52,13 @@ If you see the tool suggestion, it's working!
 
 ## 🎯 Using CodebaseIQ Pro in Claude Code
 
-Once set up, you can use these commands:
+Once set up, open your project in VS Code and use these commands:
 
 ### Analyze a Codebase
 ```
-analyze_codebase path: "/path/to/project"
+analyze_codebase path: "."
 ```
+This analyzes your VS Code workspace!
 
 ### Search Code Semantically
 ```
