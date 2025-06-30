@@ -62,10 +62,13 @@ dump.rdb
 .pytest_cache/
 .tox/
 htmlcov/
+test_*.json
+test_output/
 
 # Documentation
 docs/_build/
 site/
+doc/
 
 # Security
 *.pem

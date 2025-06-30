@@ -40,6 +40,11 @@ try:
         DocumentationAgent,
         TestCoverageAgent
     )
+    # Import enhanced understanding agents
+    from codebaseiq.agents.deep_understanding_agent import DeepUnderstandingAgent
+    from codebaseiq.agents.cross_file_intelligence import CrossFileIntelligence
+    from codebaseiq.agents.business_logic_extractor import BusinessLogicExtractor
+    from codebaseiq.agents.ai_knowledge_packager import AIKnowledgePackager
     
 except ImportError as e:
     print(f"⚠️  Missing required modules: {e}")
@@ -206,6 +211,32 @@ class CodebaseIQProServer:
                         "type": "object",
                         "properties": {}
                     }
+                ),
+                types.Tool(
+                    name="get_ai_knowledge_package",
+                    description="Get comprehensive AI knowledge package with danger zones, business context, and modification guidance.",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {}
+                    }
+                ),
+                types.Tool(
+                    name="get_business_context",
+                    description="Get business logic understanding including domain model, user journeys, and business rules.",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {}
+                    }
+                ),
+                types.Tool(
+                    name="get_modification_guidance",
+                    description="Get specific guidance for safely modifying files, including impact analysis and risk assessment.",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "file_path": {"type": "string", "description": "Path to the file you want to modify"}
+                        }
+                    }
                 )
             ]
         
@@ -251,6 +282,19 @@ class CodebaseIQProServer:
                 
             elif name == "get_dependencies":
                 result = await self._get_dependencies()
+                return [types.TextContent(type="text", text=json.dumps(result, indent=2))]
+                
+            elif name == "get_ai_knowledge_package":
+                result = await self._get_ai_knowledge_package()
+                return [types.TextContent(type="text", text=json.dumps(result, indent=2))]
+                
+            elif name == "get_business_context":
+                result = await self._get_business_context()
+                return [types.TextContent(type="text", text=json.dumps(result, indent=2))]
+                
+            elif name == "get_modification_guidance":
+                file_path = arguments.get("file_path")
+                result = await self._get_modification_guidance(file_path)
                 return [types.TextContent(type="text", text=json.dumps(result, indent=2))]
                 
             else:
@@ -306,6 +350,57 @@ class CodebaseIQProServer:
                 # Execute orchestrated analysis
                 results = await self.orchestrator.execute(context, analysis_type)
                 
+                # Enhanced Understanding Phase - Provides immediate AI context
+                logger.info("🧠 Starting enhanced understanding for AI assistants...")
+                
+                # Read file contents for enhanced analysis
+                file_contents = {}
+                for rel_path, full_path in file_map.items():
+                    try:
+                        with open(full_path, 'r', encoding='utf-8', errors='ignore') as f:
+                            file_contents[rel_path] = f.read()
+                    except Exception as e:
+                        logger.warning(f"Could not read {rel_path}: {e}")
+                
+                # Phase 1: Deep Understanding
+                deep_agent = DeepUnderstandingAgent()
+                deep_contexts = {}
+                for file_path, content in file_contents.items():
+                    try:
+                        context = deep_agent.analyze_file(file_path, content)
+                        deep_contexts[file_path] = context
+                    except Exception as e:
+                        logger.warning(f"Deep analysis failed for {file_path}: {e}")
+                
+                deep_understanding = deep_agent.generate_understanding_summary()
+                
+                # Phase 2: Cross-File Intelligence
+                cross_intel = CrossFileIntelligence()
+                cross_file_results = cross_intel.analyze_relationships(deep_contexts, file_contents)
+                
+                # Phase 3: Business Logic Extraction
+                business_extractor = BusinessLogicExtractor()
+                business_results = business_extractor.extract_business_logic(
+                    deep_contexts, cross_file_results, file_contents
+                )
+                
+                # Phase 4: AI Knowledge Packaging
+                packager = AIKnowledgePackager()
+                ai_knowledge_package = packager.create_knowledge_package(
+                    deep_understanding,
+                    cross_file_results,
+                    business_results,
+                    len(file_map)
+                )
+                
+                # Add enhanced understanding to results
+                results['enhanced_understanding'] = {
+                    'deep_analysis': deep_understanding,
+                    'cross_file_intelligence': cross_file_results,
+                    'business_logic': business_results,
+                    'ai_knowledge_package': ai_knowledge_package
+                }
+                
                 # Store in cache
                 if self.cache:
                     await self.cache.set(cache_key, results, ttl=3600)  # 1 hour
@@ -319,7 +414,10 @@ class CodebaseIQProServer:
                     'files_analyzed': len(file_map),
                     'analysis_type': analysis_type,
                     'results': results,
-                    'config': self.config.get_config_summary()
+                    'config': self.config.get_config_summary(),
+                    'ai_ready': True,
+                    'instant_context': ai_knowledge_package.get('instant_context', ''),
+                    'danger_zones_summary': ai_knowledge_package.get('danger_zones', {}).get('summary', '')
                 }
                 
             except Exception as e:
@@ -496,6 +594,179 @@ class CodebaseIQProServer:
                 'dependency_graph': dep_results.get('dependency_graph', {}),
                 'internal_dependencies': dep_results.get('internal_dependencies', 0)
             }
+            
+    async def _get_ai_knowledge_package(self) -> Dict[str, Any]:
+        """Get comprehensive AI knowledge package for immediate understanding"""
+        if not self.current_analysis:
+            return {
+                'error': 'No analysis performed yet. Run analyze_codebase first.'
+            }
+            
+        enhanced = self.current_analysis.get('enhanced_understanding', {})
+        if not enhanced:
+            return {
+                'error': 'Enhanced understanding not available. Run analyze_codebase with latest version.'
+            }
+            
+        ai_package = enhanced.get('ai_knowledge_package', {})
+        
+        # Add quick access information
+        return {
+            'metadata': ai_package.get('metadata', {}),
+            'instant_context': ai_package.get('instant_context', ''),
+            'danger_zones': ai_package.get('danger_zones', {}),
+            'safe_modification_guide': ai_package.get('safe_modification_guide', {}),
+            'ai_instructions': ai_package.get('ai_instructions', ''),
+            'quick_reference': ai_package.get('quick_reference', {}),
+            'modification_checklist': ai_package.get('modification_checklist', []),
+            'testing_requirements': ai_package.get('testing_requirements', {}),
+            'emergency_contacts': ai_package.get('emergency_contacts', {}),
+            'usage_hint': "Read instant_context first, then check danger_zones before ANY modification"
+        }
+        
+    async def _get_business_context(self) -> Dict[str, Any]:
+        """Get business logic understanding for the codebase"""
+        if not self.current_analysis:
+            return {
+                'error': 'No analysis performed yet. Run analyze_codebase first.'
+            }
+            
+        enhanced = self.current_analysis.get('enhanced_understanding', {})
+        if not enhanced:
+            return {
+                'error': 'Enhanced understanding not available. Run analyze_codebase with latest version.'
+            }
+            
+        business_logic = enhanced.get('business_logic', {})
+        
+        return {
+            'executive_summary': business_logic.get('executive_summary', ''),
+            'domain_model': business_logic.get('domain_model', {}),
+            'user_journeys': business_logic.get('user_journeys', []),
+            'business_rules': business_logic.get('business_rules', []),
+            'key_features': business_logic.get('key_features', []),
+            'compliance_requirements': business_logic.get('compliance_requirements', []),
+            'business_glossary': business_logic.get('business_glossary', {}),
+            'immediate_context': business_logic.get('immediate_context', '')
+        }
+        
+    async def _get_modification_guidance(self, file_path: Optional[str] = None) -> Dict[str, Any]:
+        """Get specific guidance for safely modifying files"""
+        if not self.current_analysis:
+            return {
+                'error': 'No analysis performed yet. Run analyze_codebase first.'
+            }
+            
+        enhanced = self.current_analysis.get('enhanced_understanding', {})
+        if not enhanced:
+            return {
+                'error': 'Enhanced understanding not available. Run analyze_codebase with latest version.'
+            }
+            
+        cross_file_intel = enhanced.get('cross_file_intelligence', {})
+        ai_package = enhanced.get('ai_knowledge_package', {})
+        
+        if file_path:
+            # Get specific guidance for a file
+            impact_zones = cross_file_intel.get('impact_zones', {})
+            file_impact = impact_zones.get(file_path, {})
+            
+            if not file_impact:
+                return {
+                    'file_path': file_path,
+                    'status': 'not_analyzed',
+                    'guidance': 'File not found in analysis. It may be safe to modify, but check manually.',
+                    'general_rules': ai_package.get('safe_modification_guide', {}).get('golden_rules', [])
+                }
+                
+            # Get deep understanding for this file
+            deep_analysis = enhanced.get('deep_analysis', {})
+            file_contexts = deep_analysis.get('file_contexts', {})
+            file_context = file_contexts.get(file_path, {})
+            
+            return {
+                'file_path': file_path,
+                'risk_level': file_impact.get('risk_level', 'UNKNOWN'),
+                'impact_summary': f"Modifying this file will affect {file_impact.get('total_impact', 0)} other files",
+                'direct_dependents': file_impact.get('direct_impact', []),
+                'indirect_dependents': file_impact.get('indirect_impact', []),
+                'ai_warning': file_impact.get('ai_warning', ''),
+                'modification_strategy': file_impact.get('modification_strategy', ''),
+                'file_purpose': file_context.get('purpose', 'Unknown'),
+                'business_logic': file_context.get('business_logic', ''),
+                'critical_functions': file_context.get('critical_functions', []),
+                'checklist': self._get_file_specific_checklist(file_path, file_impact, file_context),
+                'safer_alternatives': self._suggest_safer_alternatives(file_path, file_impact)
+            }
+        else:
+            # Return general modification guidance
+            return {
+                'general_guidance': ai_package.get('safe_modification_guide', {}),
+                'danger_zones': ai_package.get('danger_zones', {}),
+                'modification_workflow': ai_package.get('safe_modification_guide', {}).get('modification_workflow', []),
+                'testing_requirements': ai_package.get('testing_requirements', {}),
+                'hint': "Provide a file_path parameter to get specific guidance for that file"
+            }
+            
+    def _get_file_specific_checklist(self, file_path: str, impact: Dict[str, Any], 
+                                    context: Dict[str, Any]) -> List[str]:
+        """Generate file-specific modification checklist"""
+        checklist = []
+        
+        # Base checklist
+        checklist.extend([
+            f"□ Confirmed this file ({file_path}) is not in danger_zones",
+            f"□ Reviewed {len(impact.get('direct_impact', []))} direct dependencies",
+            "□ Read and understood current implementation"
+        ])
+        
+        # Risk-specific items
+        if impact.get('risk_level') == 'CRITICAL':
+            checklist.extend([
+                "□ ⚠️ CRITICAL FILE - Obtained explicit approval to modify",
+                "□ Created comprehensive test suite BEFORE changes",
+                "□ Documented every change with detailed reasoning"
+            ])
+        elif impact.get('risk_level') == 'HIGH':
+            checklist.extend([
+                "□ Followed all items in extreme_caution checklist",
+                "□ Tested ALL files in impact zone"
+            ])
+            
+        # Add specific items based on file type
+        if 'auth' in file_path.lower() or 'security' in file_path.lower():
+            checklist.append("□ Security review completed for authentication changes")
+        if 'payment' in file_path.lower() or 'billing' in file_path.lower():
+            checklist.append("□ Verified PCI compliance maintained")
+        if 'api' in file_path.lower() or 'endpoint' in file_path.lower():
+            checklist.append("□ API documentation updated")
+            
+        checklist.extend([
+            "□ All tests passing",
+            "□ No breaking changes introduced"
+        ])
+        
+        return checklist
+        
+    def _suggest_safer_alternatives(self, file_path: str, impact: Dict[str, Any]) -> List[str]:
+        """Suggest safer alternatives to direct modification"""
+        alternatives = []
+        
+        if impact.get('risk_level') in ['CRITICAL', 'HIGH']:
+            alternatives.extend([
+                "Create a new function/class instead of modifying existing ones",
+                "Use adapter pattern to wrap existing functionality",
+                "Add optional parameters with defaults to maintain compatibility",
+                "Create a new file with enhanced functionality"
+            ])
+            
+        if impact.get('total_impact', 0) > 10:
+            alternatives.append("Consider creating an abstraction layer to isolate changes")
+            
+        if not alternatives:
+            alternatives.append("This file appears relatively safe to modify with standard precautions")
+            
+        return alternatives
             
     async def _discover_files(self, root: Path) -> Dict[str, Path]:
         """Enhanced file discovery with better filtering"""

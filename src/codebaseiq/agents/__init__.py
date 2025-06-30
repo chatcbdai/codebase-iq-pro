@@ -15,6 +15,7 @@ from .analysis_agents import (
 from .embedding_agent import EmbeddingAgent
 from .documentation_agent import DocumentationAgent
 from .test_coverage_agent import TestCoverageAgent
+from .deep_understanding_agent import DeepUnderstandingAgent, CodeContext
 
 __all__ = [
     "DependencyAnalysisAgent",

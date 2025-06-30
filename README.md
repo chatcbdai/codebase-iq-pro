@@ -1,220 +1,269 @@
-# CodebaseIQ Pro
+# CodebaseIQ Pro 🚀
 
-<p align="center">
-  <strong>Advanced MCP Server for Intelligent Codebase Analysis</strong>
-</p>
+[![MCP](https://img.shields.io/badge/MCP-Compatible-blue)](https://github.com/modelcontextprotocol)
+[![Python](https://img.shields.io/badge/Python-3.9%2B-green)](https://www.python.org/)
+[![License](https://img.shields.io/badge/License-MIT-yellow)](LICENSE)
 
-<p align="center">
-  <a href="#features">Features</a> •
-  <a href="#quick-start">Quick Start</a> •
-  <a href="#documentation">Documentation</a> •
-  <a href="#api-reference">API</a> •
-  <a href="#contributing">Contributing</a>
-</p>
+**The most advanced MCP server for intelligent codebase analysis** - Transform your codebase from a simple map into a living, breathing understanding that AI assistants can use immediately.
 
----
+## 🌟 What Makes CodebaseIQ Pro Different?
 
-CodebaseIQ Pro is an advanced Model Context Protocol (MCP) server that provides instant, comprehensive codebase understanding through AI-powered analysis. It solves the "zero knowledge" problem by offering semantic code search, multi-agent orchestration, and enterprise-grade security features.
+While other tools show you the "bird's eye view" of a city, CodebaseIQ Pro tells you:
+- 👥 **Who lives there** (users, entities, relationships)
+- 🏢 **What businesses operate** (features, services, APIs)
+- 👨‍👩‍👧‍👦 **How families interact** (dependencies, data flows)
+- 🚨 **Where the danger zones are** (critical files, security areas)
+- 📋 **What the rules are** (business logic, compliance requirements)
 
-## 🌟 Features
+**Result**: AI assistants get 100% useful context at conversation startup, preventing uninformed and breaking changes.
 
-### Core Capabilities
-- **⚡ Lightning-Fast Analysis** - Analyze any codebase in 30-60 seconds
-- **🔍 Semantic Code Search** - Find code using natural language queries
-- **🤖 Multi-Agent System** - 11 specialized agents working in parallel
-- **🔒 Enterprise Security** - Sandbox execution, credential detection, audit logging
-- **📊 Comprehensive Insights** - Architecture, dependencies, security, performance
+## ✨ Key Features
 
-### Adaptive Service Selection
-- **Free Tier** (Default)
-  - OpenAI embeddings (required)
-  - Qdrant local vector database
-  - In-memory caching
-  
-- **Premium Tier** (Optional)
-  - Voyage AI embeddings (optimized for code)
-  - Pinecone cloud vector database
-  - Redis distributed caching
+### 🧠 Enhanced Understanding (v2.0)
+- **Deep Understanding Agent**: Semantic code analysis with purpose extraction
+- **Cross-File Intelligence**: Impact analysis and circular dependency detection
+- **Business Logic Extraction**: Translates code into business terms
+- **AI Knowledge Packaging**: Instant context with safety instructions
+
+### 🛡️ Safety First
+- **Danger Zone Identification**: Critical files marked with clear warnings
+- **Impact Analysis**: See how changes ripple through your codebase
+- **Risk Assessment**: Every file rated (CRITICAL/HIGH/MEDIUM/LOW)
+- **Safe Modification Guide**: Step-by-step checklists for changes
+
+### 🎯 Multi-Agent Analysis
+- **9 Specialized Agents**: Each focused on a specific aspect
+- **Parallel Processing**: Fast analysis with intelligent orchestration
+- **Adaptive Configuration**: Works with free or premium services
+- **Language Support**: Python, JavaScript, TypeScript, Java, Go, and more
+
+### 🔧 Flexible Infrastructure
+- **Vector Search**: Qdrant (free/local) or Pinecone (premium)
+- **Embeddings**: OpenAI (required) or Voyage AI (premium)
+- **Caching**: In-memory or Redis for large codebases
+- **Performance**: Handles codebases of any size
 
 ## 🚀 Quick Start
 
 ### Prerequisites
-- Python 3.9 or higher
+- Python 3.9+
 - OpenAI API key (required)
-- VS Code with Claude extension
+- MCP-compatible client (Claude Desktop, Cline VSCode, etc.)
 
 ### Installation
 
 1. **Clone the repository**
-   ```bash
-   git clone https://github.com/chatcbdai/codebase-iq-pro.git
-   cd codebase-iq-pro
-   ```
-
-2. **Run setup**
-   ```bash
-   python setup.py
-   ```
-
-3. **Configure API key** (One-time setup)
-   - Edit the `.env` file
-   - Replace `your-openai-api-key-here` with your actual OpenAI API key
-   - That's it! The key will be automatically loaded from the .env file
-
-4. **Configure Claude Code** (Already done!)
-   
-   If you're using Claude Desktop:
-   - CodebaseIQ Pro is already configured in your claude_desktop_config.json
-   - Just restart Claude Desktop to use it
-   
-   For Claude Code in VS Code:
-   - Run: `claude mcp list` to verify it's installed
-   - Start a new Claude Code session to access the tools
-
-5. **Start using with Claude**
-   
-   In VS Code with your project open:
-   ```bash
-   claude  # Start Claude Code in VS Code terminal
-   ```
-   
-   Then use these commands:
-   ```
-   analyze_codebase path: "."  # Analyzes your VS Code workspace
-   semantic_code_search query: "authentication logic"
-   get_analysis_summary
-   ```
-   
-   **Note**: When using `path: "."`, it analyzes your current VS Code workspace, 
-   not the CodebaseIQ Pro installation directory!
-
-## 📖 Documentation
-
-### Available MCP Tools
-
-#### `analyze_codebase`
-Perform comprehensive codebase analysis with multi-agent orchestration.
-
-**Parameters:**
-- `path` (string, required): Path to analyze
-- `analysis_type` (string): "full", "security_focus", "performance_focus", "quick"
-- `enable_embeddings` (boolean): Create vector embeddings (default: true)
-- `focus_areas` (list): Specific areas to focus on
-
-**Example:**
-```
-analyze_codebase path: "/my/project", analysis_type: "security_focus"
+```bash
+git clone https://github.com/chatcbdai/codebase-iq-pro.git
+cd codebase-iq-pro
 ```
 
-#### `semantic_code_search`
-Search code using natural language queries.
-
-**Parameters:**
-- `query` (string, required): Natural language search query
-- `top_k` (integer): Number of results (default: 10)
-- `filters` (object): Optional filters
-- `search_type` (string): "semantic", "keyword", or "hybrid"
-
-**Example:**
-```
-semantic_code_search query: "function that handles user authentication"
+2. **Install dependencies**
+```bash
+pip install -r requirements.txt
 ```
 
-#### `find_similar_code`
-Find code similar to a given file or function.
+3. **Set up environment**
+```bash
+# Create .env file
+echo "OPENAI_API_KEY=your-key-here" > .env
 
-**Parameters:**
-- `entity_path` (string, required): Path to code entity
-- `top_k` (integer): Number of results (default: 5)
-- `similarity_threshold` (float): Minimum similarity (0-1, default: 0.7)
+# Optional premium features
+echo "VOYAGE_API_KEY=your-key-here" >> .env
+echo "PINECONE_API_KEY=your-key-here" >> .env
+```
 
-#### `get_analysis_summary`
-Get a summary of the current analysis results.
+4. **Configure MCP client**
 
-#### `get_danger_zones`
-Get security-sensitive areas requiring attention.
+For Claude Desktop, add to `claude_desktop_config.json`:
+```json
+{
+  "mcpServers": {
+    "codebase-iq-pro": {
+      "command": "python",
+      "args": ["/path/to/codebaseiq-pro/src/codebaseiq/server.py"],
+      "env": {
+        "OPENAI_API_KEY": "your-key-here"
+      }
+    }
+  }
+}
+```
 
-#### `get_dependencies`
-View dependency graph and package information.
+## 📖 Usage
+
+### Basic Analysis
+```
+analyze_codebase /path/to/your/project
+```
+
+### Get AI Knowledge Package (NEW!)
+```
+get_ai_knowledge_package
+```
+Returns comprehensive understanding with:
+- Instant context (read in seconds)
+- Danger zones with warnings
+- Safe modification guidelines
+- AI-specific instructions
+
+### Check Before Modifying (NEW!)
+```
+get_modification_guidance /src/critical/auth.py
+```
+Returns:
+- Risk level assessment
+- Impact analysis (affected files)
+- Safety checklist
+- Safer alternatives
+
+### Understand Business Logic (NEW!)
+```
+get_business_context
+```
+Returns:
+- Domain entities and relationships
+- User journeys
+- Business rules
+- Compliance requirements
+
+### Semantic Search
+```
+semantic_code_search "authentication logic"
+```
+
+### Find Similar Code
+```
+find_similar_code /src/services/auth.py
+```
 
 ## 🏗️ Architecture
 
 ```
-codebase-iq-pro/
-├── src/
-│   └── codebaseiq/
-│       ├── __init__.py
-│       ├── server.py          # Main MCP server
-│       ├── agents/            # Analysis agents
-│       │   ├── analysis_agents.py
-│       │   ├── embedding_agent.py
-│       │   └── ...
-│       ├── core/             # Core components
-│       │   ├── adaptive_config.py
-│       │   ├── analysis_base.py
-│       │   └── simple_orchestrator.py
-│       └── services/         # External services
-│           ├── vector_db.py
-│           ├── embedding_service.py
-│           └── cache_service.py
-├── docs/                     # Documentation
-├── tests/                    # Test suite
-├── codebaseiq_pro.py        # Entry point
-├── setup.py                 # Setup script
-├── requirements.txt         # Dependencies
-└── .env                     # Configuration
+CodebaseIQ Pro
+├── Core Engine
+│   ├── Adaptive Configuration
+│   ├── Simple Orchestrator
+│   └── Analysis Base
+├── Analysis Agents (Phase 1)
+│   ├── Dependency Analysis
+│   ├── Security Audit
+│   ├── Pattern Detection
+│   ├── Architecture Analysis
+│   └── Performance Analysis
+├── Enhanced Agents (Phase 2-4)
+│   ├── Deep Understanding Agent
+│   ├── Cross-File Intelligence
+│   ├── Business Logic Extractor
+│   └── AI Knowledge Packager
+└── Services
+    ├── Vector Database (Qdrant/Pinecone)
+    ├── Embeddings (OpenAI/Voyage)
+    └── Cache (Memory/Redis)
 ```
-
-## 🤝 Contributing
-
-We welcome contributions! Please see our [Contributing Guide](docs/CONTRIBUTING.md) for details.
-
-### Development Setup
-
-1. Fork the repository
-2. Create a virtual environment
-   ```bash
-   python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
-   ```
-3. Install in development mode
-   ```bash
-   pip install -r requirements.txt
-   python -m pip install -e .
-   ```
-4. Run tests
-   ```bash
-   python tests/test_setup.py
-   ```
 
 ## 📊 Performance
 
-| Metric | Value |
-|--------|-------|
-| Analysis Speed | < 60s for 10K files |
-| Search Latency | < 100ms |
-| Memory Usage | < 2GB |
-| Accuracy | > 95% relevance |
+- **Analysis Speed**: < 60s for 10K files
+- **Search Latency**: < 100ms
+- **Memory Usage**: < 2GB
+- **Parallel Processing**: Uses all CPU cores
+- **Smart Caching**: Reduces redundant analysis
 
-## 🔒 Security
+## 🔐 Security & Compliance
 
-- All operations run in sandboxed environments
-- Automatic credential detection and masking
-- Comprehensive audit logging
-- No data leaves your local environment (unless using cloud services)
+- **Never stores credentials**: All secrets via environment variables
+- **Secure file handling**: Respects .gitignore patterns
+- **Compliance detection**: Identifies HIPAA, PCI, SOC2 requirements
+- **Access control**: Configurable file/directory restrictions
 
-## 📝 License
+## 🤝 Contributing
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+We welcome contributions! Please see [CONTRIBUTING.md](docs/CONTRIBUTING.md) for guidelines.
+
+### Development Setup
+```bash
+# Install in development mode
+pip install -e .
+
+# Run tests
+pytest tests/
+
+# Format code
+black src/
+```
+
+## 📝 Documentation
+
+- [Quick Start Guide](docs/QUICKSTART.md)
+- [MCP Setup Guide](docs/MCP_SETUP_GUIDE.md)
+- [Technical Deep Dive](docs/technical-deep-dive.md)
+- [Enhanced Architecture](docs/enhanced-architecture.md)
+- [Implementation Guide](docs/implementation-guide.md)
+
+## 🐛 Troubleshooting
+
+### Common Issues
+
+1. **"No module named 'codebaseiq'"**
+   - Run: `pip install -e .`
+
+2. **"OpenAI API key not found"**
+   - Ensure `.env` file exists with `OPENAI_API_KEY`
+
+3. **"Analysis takes too long"**
+   - Try `analysis_type="quick"` for faster results
+   - Reduce file size limit in config
+
+## 📈 Roadmap
+
+- [x] **v2.0**: Enhanced understanding with AI safety
+- [ ] **v2.1**: Language-specific security rules
+- [ ] **v2.2**: Real-time file watching
+- [ ] **v2.3**: Git history analysis
+- [ ] **v2.4**: Team knowledge sharing
+- [ ] **v3.0**: Cloud-based analysis
+
+## 📄 License
+
+MIT License with Attribution - see [LICENSE](LICENSE) file for details.
+
+**Important**: While this is open source software, we require attribution when using or building upon CodebaseIQ Pro. This helps us track adoption and build a community of contributors.
+
+## 🤝 Join Our Team
+
+Are you passionate about code analysis and AI-assisted development? We're actively looking for experienced developers to join our core team! 
+
+**We're especially interested in:**
+- Language analyzer experts (Go, Rust, C++, Ruby, etc.)
+- Security researchers
+- AI/ML engineers
+- DevOps and infrastructure specialists
+
+**To join:** Email us at hi@chatcbd.com with:
+- Your GitHub profile
+- Areas of expertise
+- Why you're excited about CodebaseIQ Pro
 
 ## 🙏 Acknowledgments
 
-- Built for the MCP (Model Context Protocol) ecosystem
-- Powered by OpenAI embeddings and optional Voyage AI
-- Vector search by Qdrant (local) or Pinecone (cloud)
+- Built for the [Model Context Protocol](https://github.com/modelcontextprotocol)
+- Inspired by the need for safer AI-assisted coding
+- Thanks to all contributors and early adopters
+
+## 📞 Support
+
+- **Issues**: [GitHub Issues](https://github.com/chatcbdai/codebase-iq-pro/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/chatcbdai/codebase-iq-pro/discussions)
+
+## 👥 Team
+
+- 🦉 **Idea Guy**: Christopher Visser @CannaVis - [Owner](https://www.thcgummies.com/)
+- ⚙️ **Code Generator**: Claude Opus 4 - [Developer](https://claude.ai/code)  
+- 🤖 **Team-Orchestrator**: ChatCBD @chatcbdai - [Assistant](https://chatcbd.com)
+- 🏧 **Sponsor**: Cannabidiol Life - [Stress-reliever](https://cbdoilsandedibles.com)
+- 📧 **Connect**: hi@chatcbd.com
 
 ---
 
-<p align="center">
-  Made with ❤️ for developers who value intelligent code analysis
-</p>
+**Transform your codebase understanding. Make AI-assisted coding safer. Try CodebaseIQ Pro today!** 🚀
