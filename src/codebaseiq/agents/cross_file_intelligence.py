@@ -64,14 +64,14 @@ class CrossFileIntelligence:
         circular_deps = self._find_circular_dependencies()
         
         return {
-            "import_graph": dict(self.import_graph),
-            "reverse_dependencies": dict(self.reverse_graph),
+            "import_graph": {k: list(v) for k, v in self.import_graph.items()},
+            "reverse_dependencies": {k: list(v) for k, v in self.reverse_graph.items()},
             "execution_paths": self.execution_paths,
             "api_boundaries": api_boundaries,
             "impact_zones": impact_zones,
             "critical_interfaces": critical_interfaces,
             "integration_points": self._find_integration_points(file_contexts),
-            "shared_state": dict(self.shared_globals),
+            "shared_state": {k: list(v) for k, v in self.shared_globals.items()},
             "circular_dependencies": circular_deps,
             "change_risk_map": self.change_risk_map,
             "ai_modification_guidance": self._generate_ai_modification_guidance(

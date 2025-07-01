@@ -91,4 +91,5 @@ Thumbs.db
 
 # Claude
 .claude/
+!.claude/config.md
 CLAUDE.md

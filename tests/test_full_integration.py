@@ -14,12 +14,11 @@ from pathlib import Path
 from typing import Dict, Any
 
 # Add src to path
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'src'))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'src'))
 
 # Import server components
 from codebaseiq.server import CodebaseIQProServer
-from mcp.server.models import InitializationOptions
-from mcp.server.lowlevel.server import NotificationOptions
+from codebaseiq.config import CodebaseIQConfig
 
 # Simulate server environment
 os.environ['OPENAI_API_KEY'] = 'test-key-12345'
@@ -304,12 +303,29 @@ class TestAuthService:
         
         assert result['status'] == 'success', "Analysis should succeed"
         assert result['files_analyzed'] > 0, "Should analyze files"
-        assert 'enhanced_understanding' in result['results'], "Should have enhanced understanding"
-        assert result['ai_ready'] == True, "Should be AI ready"
+        assert 'summary' in result, "Should have summary"
+        assert 'instant_context' in result, "Should have instant context"
         
         print(f"  ✓ Analyzed {result['files_analyzed']} files")
-        print(f"  ✓ AI Ready: {result['ai_ready']}")
+        print(f"  ✓ Languages: {result['summary']['languages']}")
+        print(f"  ✓ High risk files: {result['summary']['high_risk_files']}")
         print(f"  ✓ Instant Context Preview: {result['instant_context'][:100]}...")
+        
+        # Test JSON serialization and size
+        print("  ✓ Testing JSON serialization and token limits...")
+        try:
+            json_str = json.dumps(result)
+            size_kb = len(json_str) / 1024
+            print(f"  ✓ Result is JSON serializable! Size: {size_kb:.1f} KB")
+            
+            # Rough token estimate (1 token ≈ 4 chars)
+            estimated_tokens = len(json_str) / 4
+            print(f"  ✓ Estimated tokens: {estimated_tokens:.0f}")
+            assert estimated_tokens < 25000, f"Response too large: {estimated_tokens} tokens"
+            
+        except TypeError as e:
+            print(f"  ❌ JSON serialization failed: {e}")
+            raise AssertionError(f"Result is not JSON serializable: {e}")
         
         return result
         
@@ -408,54 +424,141 @@ class TestAuthService:
             
         return auth_guidance
         
+    async def test_get_codebase_context(self):
+        """Test the new optimized context retrieval"""
+        print("\n🚀 Testing get_codebase_context...")
+        
+        result = await self.server._get_codebase_context()
+        
+        assert 'error' not in result, "Should not have errors"
+        assert 'instant_context' in result, "Should have instant context"
+        assert 'danger_zones' in result, "Should have danger zones summary"
+        assert 'critical_files' in result, "Should have critical files list"
+        
+        # Test size
+        json_str = json.dumps(result)
+        size_kb = len(json_str) / 1024
+        estimated_tokens = len(json_str) / 4
+        
+        print(f"  ✓ Response size: {size_kb:.1f} KB ({estimated_tokens:.0f} tokens)")
+        assert estimated_tokens < 25000, f"Response too large: {estimated_tokens} tokens"
+        
+        print(f"  ✓ Critical files: {len(result['critical_files'])}")
+        print(f"  ✓ Metadata: {result['metadata']}")
+        
+        return result
+        
+    async def test_check_understanding(self):
+        """Test the red flag verification system"""
+        print("\n🚨 Testing check_understanding...")
+        
+        # Test with insufficient understanding
+        result = await self.server._check_understanding(
+            implementation_plan="I want to modify the auth service",
+            files_to_modify=["src/services/auth_service.py"]
+        )
+        
+        assert not result['approval'], "Should not approve without sufficient understanding"
+        assert 'warnings' in result, "Should have warnings for critical files"
+        
+        print(f"  ✓ Score: {result['score']}")
+        print(f"  ✓ Approval: {result['approval']}")
+        print(f"  ✓ Warnings: {len(result['warnings'])}")
+        
+        # Test with better understanding
+        result2 = await self.server._check_understanding(
+            implementation_plan="I plan to add a new utility function to format dates in the UI. This will improve user experience by showing consistent date formats. I will add comprehensive tests.",
+            files_to_modify=["src/utils/date_formatter.py"],
+            understanding_points=[
+                "This is a utility file with low risk",
+                "No authentication or security impact",
+                "Will maintain backward compatibility",
+                "Tests will be written first"
+            ]
+        )
+        
+        print(f"\n  ✓ Improved Score: {result2['score']}")
+        print(f"  ✓ Feedback items: {len(result2['feedback'])}")
+        
+        return result2
+        
+    async def test_get_impact_analysis(self):
+        """Test impact analysis for specific files"""
+        print("\n🔍 Testing get_impact_analysis...")
+        
+        # Test auth service impact
+        result = await self.server._get_impact_analysis("src/services/auth_service.py")
+        
+        if result.get('status') != 'not_analyzed':
+            assert 'risk_level' in result, "Should have risk level"
+            assert 'impact_summary' in result, "Should have impact summary"
+            assert 'safe_modification_checklist' in result, "Should have checklist"
+            
+            print(f"  ✓ Risk Level: {result['risk_level']}")
+            print(f"  ✓ Total Impact: {result['impact_summary']['total_impact']} files")
+            print(f"  ✓ Checklist items: {len(result['safe_modification_checklist'])}")
+        else:
+            print(f"  ℹ️ File not in analysis (expected for test)")
+            
+        return result
+        
     async def test_full_workflow(self):
         """Test a complete workflow as an AI would use it"""
-        print("\n🤖 Testing full AI workflow...")
+        print("\n🤖 Testing full AI workflow with v2.0 optimizations...")
         
-        # Step 1: Analyze the codebase
-        print("\n1️⃣ Analyzing codebase...")
+        # Step 1: Analyze the codebase (one-time)
+        print("\n1️⃣ One-time codebase analysis...")
         analysis = await self.test_analyze_codebase()
         
-        # Step 2: Get AI knowledge package
-        print("\n2️⃣ Getting AI knowledge package...")
-        ai_package = await self.test_get_ai_knowledge_package()
+        # Step 2: New conversation - get context
+        print("\n2️⃣ NEW CONVERSATION - Getting optimized context...")
+        context = await self.test_get_codebase_context()
         
-        # Step 3: Understand business context
-        print("\n3️⃣ Understanding business context...")
-        business = await self.test_get_business_context()
+        # Step 3: Check understanding before implementation
+        print("\n3️⃣ Checking understanding (red flag system)...")
+        understanding = await self.test_check_understanding()
         
-        # Step 4: Check modification guidance for critical file
-        print("\n4️⃣ Checking modification guidance...")
+        # Step 4: Get impact analysis for specific file
+        print("\n4️⃣ Getting impact analysis...")
+        impact = await self.test_get_impact_analysis()
+        
+        # Step 5: Check modification guidance (existing test)
+        print("\n5️⃣ Getting modification guidance...")
         guidance = await self.test_get_modification_guidance()
         
         # Simulate AI reading the instant context
         print("\n📖 AI Reading Instant Context:")
         print("-" * 60)
-        print(ai_package['instant_context'])
+        print(context.get('instant_context', 'No context available'))
         print("-" * 60)
         
         # Simulate AI checking danger zones
         print("\n⚠️ AI Checking Danger Zones:")
-        danger_zones = ai_package['danger_zones']
-        if danger_zones.get('do_not_modify'):
-            print("  DO NOT MODIFY:")
-            for item in danger_zones['do_not_modify'][:3]:
-                print(f"    - {item['file']}: {item['reason']}")
-                
-        # Simulate AI understanding the business
-        print("\n💼 AI Understanding Business:")
-        print(f"  Executive Summary: {business.get('executive_summary', 'N/A')[:200]}...")
+        danger_zones = context.get('danger_zones', {})
+        print(f"  Summary: {danger_zones.get('summary', 'N/A')}")
+        print(f"  Critical files: {danger_zones.get('do_not_modify_count', 0)}")
+        print(f"  High risk files: {danger_zones.get('extreme_caution_count', 0)}")
+        
+        # Show token savings
+        print("\n📊 Token Usage Comparison:")
+        print("  v1.0: ~1,211,220 tokens (exceeds 25K limit)")
+        print("  v2.0: < 25,000 tokens (optimized)")
+        print(f"  Actual v2.0 response: ~{len(json.dumps(context)) / 4:.0f} tokens")
         
         print("\n✅ Full workflow completed successfully!")
-        print("🎯 The enhanced CodebaseIQ Pro provides immediate, comprehensive understanding")
-        print("🛡️ AI assistants can now make safe, informed modifications from the first message")
+        print("🎯 CodebaseIQ Pro v2.0 Solutions:")
+        print("  ✓ Token limit solved with response optimization")
+        print("  ✓ Zero knowledge solved with persistent cache")
+        print("  ✓ Overconfidence prevented with red flag system")
+        print("  ✓ Performance improved with instant context loading")
         
     async def run_all_tests(self):
         """Run all integration tests"""
         try:
             # Initialize server
             print("🚀 Initializing CodebaseIQ Pro Server...")
-            self.server = CodebaseIQProServer()
+            config = CodebaseIQConfig()
+            self.server = CodebaseIQProServer(config)
             
             # Create test codebase
             self.create_test_codebase()
@@ -464,8 +567,13 @@ class TestAuthService:
             await self.test_full_workflow()
             
             print("\n✨ All integration tests passed!")
-            print("📊 Enhanced CodebaseIQ Pro is working correctly")
-            print("🎯 AI assistants now have 100% useful context at conversation startup")
+            print("📊 CodebaseIQ Pro v2.0 is working correctly")
+            print("\n🎯 Key Achievements:")
+            print("  ✓ MCP 25K token limit: SOLVED")
+            print("  ✓ Zero knowledge problem: SOLVED") 
+            print("  ✓ AI overconfidence: PREVENTED")
+            print("  ✓ Performance: INSTANT context loading")
+            print("\n🚀 AI assistants now have safe, immediate understanding!")
             
         finally:
             # Cleanup

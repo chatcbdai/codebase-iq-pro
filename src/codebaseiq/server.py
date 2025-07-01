@@ -148,8 +148,42 @@ class CodebaseIQProServer:
             """List available tools"""
             return [
                 types.Tool(
+                    name="get_codebase_context",
+                    description="ALWAYS USE THIS FIRST! Get essential codebase context for safe modifications. Returns danger zones, impact analysis, and business understanding.",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "refresh": {"type": "boolean", "default": False, "description": "Force refresh of cached analysis"}
+                        }
+                    }
+                ),
+                types.Tool(
+                    name="check_understanding",
+                    description="REQUIRED before ANY code implementation! Verify your understanding of the codebase and get approval score.",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "implementation_plan": {"type": "string", "description": "Describe what you plan to implement and why"},
+                            "files_to_modify": {"type": "array", "items": {"type": "string"}, "description": "List of files you plan to modify"},
+                            "understanding_points": {"type": "array", "items": {"type": "string"}, "description": "Key points showing your understanding"}
+                        },
+                        "required": ["implementation_plan"]
+                    }
+                ),
+                types.Tool(
+                    name="get_impact_analysis",
+                    description="Get detailed impact analysis for a specific file before modification.",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "file_path": {"type": "string", "description": "Path to the file to analyze"}
+                        },
+                        "required": ["file_path"]
+                    }
+                ),
+                types.Tool(
                     name="analyze_codebase",
-                    description="Analyze a codebase with intelligent multi-agent orchestration.",
+                    description="Full codebase analysis (4-5 minutes). Use get_codebase_context instead for quick access.",
                     inputSchema={
                         "type": "object",
                         "properties": {
@@ -246,7 +280,27 @@ class CodebaseIQProServer:
         ) -> list[types.TextContent | types.ImageContent | types.EmbeddedResource]:
             """Handle tool calls"""
             
-            if name == "analyze_codebase":
+            if name == "get_codebase_context":
+                result = await self._get_codebase_context(
+                    refresh=arguments.get("refresh", False)
+                )
+                return [types.TextContent(type="text", text=json.dumps(result, indent=2))]
+                
+            elif name == "check_understanding":
+                result = await self._check_understanding(
+                    implementation_plan=arguments.get("implementation_plan"),
+                    files_to_modify=arguments.get("files_to_modify", []),
+                    understanding_points=arguments.get("understanding_points", [])
+                )
+                return [types.TextContent(type="text", text=json.dumps(result, indent=2))]
+                
+            elif name == "get_impact_analysis":
+                result = await self._get_impact_analysis(
+                    file_path=arguments.get("file_path")
+                )
+                return [types.TextContent(type="text", text=json.dumps(result, indent=2))]
+                
+            elif name == "analyze_codebase":
                 result = await self._analyze_codebase(
                     path=arguments.get("path"),
                     analysis_type=arguments.get("analysis_type", "full"),
@@ -408,16 +462,52 @@ class CodebaseIQProServer:
                 # Store current analysis
                 self.current_analysis = results
                 
+                # Save to persistent storage
+                try:
+                    storage_dir = Path.home() / ".codebaseiq"
+                    storage_dir.mkdir(exist_ok=True)
+                    storage_path = storage_dir / "analysis_cache.json"
+                    
+                    # Save with metadata
+                    to_save = {
+                        'analysis_timestamp': datetime.now().isoformat(),
+                        'codebase_path': str(root_path),
+                        'files_analyzed': len(file_map),
+                        **results
+                    }
+                    
+                    with open(storage_path, 'w') as f:
+                        json.dump(to_save, f, indent=2, default=str)
+                    logger.info(f"Saved analysis to {storage_path}")
+                except Exception as e:
+                    logger.warning(f"Failed to save analysis to persistent storage: {e}")
+                
+                # Return optimized response (under 25K tokens)
                 return {
                     'status': 'success',
                     'path': str(root_path),
                     'files_analyzed': len(file_map),
                     'analysis_type': analysis_type,
-                    'results': results,
-                    'config': self.config.get_config_summary(),
-                    'ai_ready': True,
+                    'summary': {
+                        'total_files': len(file_map),
+                        'languages': list(set(context.get('language', 'unknown') 
+                                           for context in deep_contexts.values())),
+                        'high_risk_files': len([f for f, z in cross_file_results.get('impact_zones', {}).items()
+                                              if z.get('risk_level') in ['CRITICAL', 'HIGH']]),
+                        'key_features': business_results.get('key_features', [])[:5]
+                    },
                     'instant_context': ai_knowledge_package.get('instant_context', ''),
-                    'danger_zones_summary': ai_knowledge_package.get('danger_zones', {}).get('summary', '')
+                    'danger_zones_preview': {
+                        'summary': ai_knowledge_package.get('danger_zones', {}).get('summary', ''),
+                        'critical_count': len(ai_knowledge_package.get('danger_zones', {}).get('do_not_modify', [])),
+                        'high_risk_count': len(ai_knowledge_package.get('danger_zones', {}).get('extreme_caution', []))
+                    },
+                    'next_steps': [
+                        'Use get_codebase_context for full analysis details',
+                        'Use check_understanding before any implementation',
+                        'Use get_modification_guidance for specific files'
+                    ],
+                    'storage_location': str(Path.home() / ".codebaseiq" / "analysis_cache.json")
                 }
                 
             except Exception as e:
@@ -599,7 +689,8 @@ class CodebaseIQProServer:
         """Get comprehensive AI knowledge package for immediate understanding"""
         if not self.current_analysis:
             return {
-                'error': 'No analysis performed yet. Run analyze_codebase first.'
+                'error': 'No analysis performed yet. Run analyze_codebase first.',
+                'hint': 'Use get_codebase_context instead for optimized access'
             }
             
         enhanced = self.current_analysis.get('enhanced_understanding', {})
@@ -610,18 +701,16 @@ class CodebaseIQProServer:
             
         ai_package = enhanced.get('ai_knowledge_package', {})
         
-        # Add quick access information
+        # Return optimized version - direct users to get_codebase_context
         return {
-            'metadata': ai_package.get('metadata', {}),
+            'notice': '⚠️ This method returns large responses. Use get_codebase_context for optimized access.',
             'instant_context': ai_package.get('instant_context', ''),
-            'danger_zones': ai_package.get('danger_zones', {}),
-            'safe_modification_guide': ai_package.get('safe_modification_guide', {}),
-            'ai_instructions': ai_package.get('ai_instructions', ''),
+            'danger_zones_summary': self._summarize_danger_zones(ai_package.get('danger_zones', {})),
+            'golden_rules': ai_package.get('safe_modification_guide', {}).get('golden_rules', []),
             'quick_reference': ai_package.get('quick_reference', {}),
-            'modification_checklist': ai_package.get('modification_checklist', []),
-            'testing_requirements': ai_package.get('testing_requirements', {}),
-            'emergency_contacts': ai_package.get('emergency_contacts', {}),
-            'usage_hint': "Read instant_context first, then check danger_zones before ANY modification"
+            'modification_checklist': ai_package.get('modification_checklist', [])[:10],
+            'recommended_tool': 'get_codebase_context',
+            'usage_hint': "Use get_codebase_context first, then check_understanding before ANY modification"
         }
         
     async def _get_business_context(self) -> Dict[str, Any]:
@@ -639,15 +728,42 @@ class CodebaseIQProServer:
             
         business_logic = enhanced.get('business_logic', {})
         
+        # Optimize response size
+        domain_model = business_logic.get('domain_model', {})
+        entities = domain_model.get('entities', {})
+        
+        # Summarize entities instead of full details
+        entity_summary = {}
+        for name, data in list(entities.items())[:20]:  # Top 20 entities
+            entity_summary[name] = {
+                'purpose': data.get('business_purpose', '')[:100],
+                'importance': data.get('importance', 0)
+            }
+        
         return {
             'executive_summary': business_logic.get('executive_summary', ''),
-            'domain_model': business_logic.get('domain_model', {}),
-            'user_journeys': business_logic.get('user_journeys', []),
-            'business_rules': business_logic.get('business_rules', []),
-            'key_features': business_logic.get('key_features', []),
-            'compliance_requirements': business_logic.get('compliance_requirements', []),
-            'business_glossary': business_logic.get('business_glossary', {}),
-            'immediate_context': business_logic.get('immediate_context', '')
+            'domain_entities_count': len(entities),
+            'domain_entities_sample': entity_summary,
+            'user_journeys': [
+                {
+                    'type': j.get('journey_type', ''),
+                    'description': j.get('description', '')[:100],
+                    'complexity': j.get('complexity', '')
+                }
+                for j in business_logic.get('user_journeys', [])[:10]
+            ],
+            'business_rules': [
+                {
+                    'rule': r.get('rule', '')[:100],
+                    'impact': r.get('business_impact', '')
+                }
+                for r in business_logic.get('business_rules', [])
+                if 'HIGH' in r.get('business_impact', '')
+            ][:15],
+            'key_features': business_logic.get('key_features', [])[:20],
+            'compliance_requirements': business_logic.get('compliance_requirements', [])[:10],
+            'immediate_context': business_logic.get('immediate_context', ''),
+            'full_details_hint': 'Use get_codebase_context for optimized access to all details'
         }
         
     async def _get_modification_guidance(self, file_path: Optional[str] = None) -> Dict[str, Any]:
@@ -821,6 +937,334 @@ class CodebaseIQProServer:
         else:
             return 'module'
             
+    async def _get_codebase_context(self, refresh: bool = False) -> Dict[str, Any]:
+        """
+        Get essential codebase context for AI assistants.
+        This is the FIRST tool to use in any conversation.
+        Returns optimized, chunked data that fits within token limits.
+        """
+        try:
+            # Check if we have cached context
+            cache_key = "codebase_context_v2"
+            if self.cache and not refresh:
+                cached_context = await self.cache.get(cache_key)
+                if cached_context:
+                    logger.info("Returning cached codebase context")
+                    return cached_context
+                    
+            # If no cache or refresh requested, ensure we have analysis
+            if not self.current_analysis:
+                # Try to load from persistent storage
+                storage_path = Path.home() / ".codebaseiq" / "analysis_cache.json"
+                if storage_path.exists() and not refresh:
+                    try:
+                        with open(storage_path, 'r') as f:
+                            self.current_analysis = json.load(f)
+                        logger.info("Loaded analysis from persistent storage")
+                    except Exception as e:
+                        logger.warning(f"Failed to load cached analysis: {e}")
+                        
+            if not self.current_analysis:
+                return {
+                    'error': 'No analysis available. Please run analyze_codebase first.',
+                    'hint': 'This is a one-time setup that takes 4-5 minutes.'
+                }
+                
+            # Extract and optimize the response
+            enhanced = self.current_analysis.get('enhanced_understanding', {})
+            ai_package = enhanced.get('ai_knowledge_package', {})
+            
+            # Build optimized context (keeping under 25K tokens)
+            context = {
+                'instant_context': ai_package.get('instant_context', ''),
+                'danger_zones': self._summarize_danger_zones(ai_package.get('danger_zones', {})),
+                'critical_files': self._extract_critical_files(ai_package.get('danger_zones', {})),
+                'safe_modification_guide': ai_package.get('safe_modification_guide', {}).get('golden_rules', []),
+                'business_summary': enhanced.get('business_logic', {}).get('executive_summary', ''),
+                'key_features': enhanced.get('business_logic', {}).get('key_features', [])[:10],
+                'main_components': enhanced.get('deep_analysis', {}).get('main_components', [])[:10],
+                'testing_info': {
+                    'framework': ai_package.get('testing_requirements', {}).get('test_framework', ''),
+                    'commands': ai_package.get('testing_requirements', {}).get('test_commands', [])
+                },
+                'quick_reference': ai_package.get('quick_reference', {}),
+                'metadata': {
+                    'files_analyzed': self.current_analysis.get('files_analyzed', 0),
+                    'analysis_timestamp': ai_package.get('metadata', {}).get('analysis_timestamp', ''),
+                    'high_risk_files': len(self._extract_critical_files(ai_package.get('danger_zones', {})))
+                }
+            }
+            
+            # Cache the optimized context
+            if self.cache:
+                await self.cache.set(cache_key, context, ttl=86400)  # 24 hours
+                
+            return context
+            
+        except Exception as e:
+            logger.error(f"Failed to get codebase context: {e}")
+            return {'error': str(e)}
+            
+    async def _check_understanding(self, implementation_plan: str, 
+                                  files_to_modify: List[str] = None,
+                                  understanding_points: List[str] = None) -> Dict[str, Any]:
+        """
+        Check AI's understanding before allowing code implementation.
+        This is the "red flag" system that prevents overconfident changes.
+        """
+        if not self.current_analysis:
+            return {
+                'error': 'No analysis available. Run get_codebase_context first.',
+                'approval': False,
+                'score': 0
+            }
+            
+        try:
+            # Initialize scoring
+            score = 0
+            max_score = 10
+            feedback = []
+            warnings = []
+            
+            # Check 1: Plan clarity (2 points)
+            if implementation_plan and len(implementation_plan) > 50:
+                score += 2
+                feedback.append("✓ Clear implementation plan provided")
+            else:
+                feedback.append("✗ Implementation plan needs more detail")
+                
+            # Check 2: Files identified (2 points)
+            if files_to_modify:
+                score += 1
+                feedback.append(f"✓ Identified {len(files_to_modify)} files to modify")
+                
+                # Check if any are dangerous
+                danger_zones = self.current_analysis.get('enhanced_understanding', {}).get(
+                    'ai_knowledge_package', {}).get('danger_zones', {})
+                critical_files = set()
+                for f in danger_zones.get('do_not_modify', []):
+                    critical_files.add(f.get('file', ''))
+                for f in danger_zones.get('extreme_caution', []):
+                    critical_files.add(f.get('file', ''))
+                    
+                dangerous_modifications = [f for f in files_to_modify if f in critical_files]
+                if dangerous_modifications:
+                    warnings.append(f"⚠️ CRITICAL: Planning to modify high-risk files: {dangerous_modifications}")
+                    score -= 2  # Penalty for dangerous modifications
+                else:
+                    score += 1
+                    feedback.append("✓ No critical files in modification list")
+            else:
+                feedback.append("✗ No files specified for modification")
+                
+            # Check 3: Understanding demonstrated (3 points)
+            if understanding_points and len(understanding_points) >= 3:
+                score += 2
+                feedback.append(f"✓ Demonstrated understanding with {len(understanding_points)} points")
+                
+                # Bonus for mentioning specific risks
+                risk_awareness = any('risk' in p.lower() or 'impact' in p.lower() 
+                                   or 'dependency' in p.lower() for p in understanding_points)
+                if risk_awareness:
+                    score += 1
+                    feedback.append("✓ Shows awareness of risks and dependencies")
+            else:
+                feedback.append("✗ Need to demonstrate deeper understanding")
+                
+            # Check 4: Business impact awareness (2 points)
+            business_keywords = ['business', 'feature', 'user', 'functionality', 'behavior']
+            if any(keyword in implementation_plan.lower() for keyword in business_keywords):
+                score += 2
+                feedback.append("✓ Considers business impact")
+            else:
+                feedback.append("✗ Should consider business/user impact")
+                
+            # Check 5: Testing plan (1 point)
+            if 'test' in implementation_plan.lower():
+                score += 1
+                feedback.append("✓ Includes testing considerations")
+            else:
+                feedback.append("✗ No testing plan mentioned")
+                
+            # Determine approval
+            approval = score >= 8 and len(warnings) == 0
+            
+            # Generate detailed guidance
+            if not approval:
+                guidance = self._generate_understanding_guidance(
+                    score, feedback, warnings, implementation_plan
+                )
+            else:
+                guidance = "Approved! Your understanding is sufficient. Proceed with caution."
+                
+            return {
+                'approval': approval,
+                'score': f"{score}/{max_score}",
+                'feedback': feedback,
+                'warnings': warnings,
+                'guidance': guidance,
+                'next_steps': self._suggest_next_steps(approval, files_to_modify)
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to check understanding: {e}")
+            return {
+                'error': str(e),
+                'approval': False,
+                'score': 0
+            }
+            
+    async def _get_impact_analysis(self, file_path: str) -> Dict[str, Any]:
+        """Get detailed impact analysis for a specific file."""
+        if not self.current_analysis:
+            return {
+                'error': 'No analysis available. Run get_codebase_context first.'
+            }
+            
+        try:
+            # Get cross-file intelligence
+            cross_file_intel = self.current_analysis.get('enhanced_understanding', {}).get(
+                'cross_file_intelligence', {})
+            impact_zones = cross_file_intel.get('impact_zones', {})
+            
+            # Get specific file impact
+            file_impact = impact_zones.get(file_path, {})
+            
+            if not file_impact:
+                return {
+                    'file_path': file_path,
+                    'status': 'not_analyzed',
+                    'message': 'File not found in analysis. It may be safe to modify.',
+                    'recommendation': 'Proceed with standard precautions.'
+                }
+                
+            # Get additional context
+            deep_analysis = self.current_analysis.get('enhanced_understanding', {}).get(
+                'deep_analysis', {})
+            file_context = deep_analysis.get('file_contexts', {}).get(file_path, {})
+            
+            # Build comprehensive impact report
+            return {
+                'file_path': file_path,
+                'risk_level': file_impact.get('risk_level', 'UNKNOWN'),
+                'risk_score': file_impact.get('risk_score', 0),
+                'impact_summary': {
+                    'direct_dependencies': len(file_impact.get('direct_impact', [])),
+                    'indirect_dependencies': len(file_impact.get('indirect_impact', [])),
+                    'total_impact': file_impact.get('total_impact', 0)
+                },
+                'risk_factors': file_impact.get('risk_factors', []),
+                'ai_warning': file_impact.get('ai_warning', ''),
+                'modification_strategy': file_impact.get('modification_strategy', ''),
+                'file_details': {
+                    'purpose': file_context.get('purpose', 'Unknown'),
+                    'language': file_context.get('language', 'Unknown'),
+                    'complexity': file_context.get('complexity_score', 0),
+                    'critical_functions': len(file_context.get('critical_functions', []))
+                },
+                'dependencies': {
+                    'imports': file_impact.get('direct_impact', [])[:10],
+                    'imported_by': file_impact.get('indirect_impact', [])[:10]
+                },
+                'safe_modification_checklist': self._generate_file_checklist(
+                    file_path, file_impact, file_context
+                ),
+                'alternatives': self._suggest_safer_alternatives(file_path, file_impact)
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to get impact analysis: {e}")
+            return {'error': str(e)}
+            
+    def _summarize_danger_zones(self, danger_zones: Dict[str, Any]) -> Dict[str, Any]:
+        """Summarize danger zones to fit within token limits."""
+        return {
+            'summary': danger_zones.get('summary', ''),
+            'do_not_modify_count': len(danger_zones.get('do_not_modify', [])),
+            'do_not_modify_sample': [
+                {
+                    'file': item['file'],
+                    'reason': item['reason'][:100] + '...' if len(str(item['reason'])) > 100 else item['reason']
+                }
+                for item in danger_zones.get('do_not_modify', [])[:5]
+            ],
+            'extreme_caution_count': len(danger_zones.get('extreme_caution', [])),
+            'extreme_caution_sample': [
+                {
+                    'file': item['file'],
+                    'impact': item.get('impact', 0)
+                }
+                for item in danger_zones.get('extreme_caution', [])[:5]
+            ]
+        }
+        
+    def _extract_critical_files(self, danger_zones: Dict[str, Any]) -> List[str]:
+        """Extract list of critical files."""
+        critical = []
+        for item in danger_zones.get('do_not_modify', []):
+            critical.append(item.get('file', ''))
+        for item in danger_zones.get('extreme_caution', []):
+            critical.append(item.get('file', ''))
+        return critical
+        
+    def _generate_understanding_guidance(self, score: int, feedback: List[str], 
+                                       warnings: List[str], plan: str) -> str:
+        """Generate guidance to improve understanding."""
+        guidance = "To improve your understanding score:\n\n"
+        
+        if score < 8:
+            guidance += "1. Provide more detailed implementation plan\n"
+            guidance += "2. List ALL files that will be affected\n"
+            guidance += "3. Explain the business impact of your changes\n"
+            guidance += "4. Describe your testing strategy\n"
+            guidance += "5. Show awareness of dependencies and risks\n"
+            
+        if warnings:
+            guidance += "\n⚠️ CRITICAL ISSUES TO ADDRESS:\n"
+            for warning in warnings:
+                guidance += f"- {warning}\n"
+                
+        guidance += "\nResubmit with check_understanding when ready."
+        return guidance
+        
+    def _suggest_next_steps(self, approved: bool, files: List[str] = None) -> List[str]:
+        """Suggest next steps based on approval status."""
+        if approved:
+            steps = [
+                "1. Run get_modification_guidance for each file before editing",
+                "2. Make minimal, incremental changes",
+                "3. Run tests after each change",
+                "4. Document your changes clearly"
+            ]
+        else:
+            steps = [
+                "1. Review the feedback and improve your plan",
+                "2. Use get_impact_analysis to understand file dependencies",
+                "3. Read get_business_context for domain understanding",
+                "4. Resubmit with check_understanding"
+            ]
+            
+        return steps
+        
+    def _generate_file_checklist(self, file_path: str, impact: Dict[str, Any], 
+                                context: Dict[str, Any]) -> List[str]:
+        """Generate specific checklist for file modification."""
+        checklist = [
+            f"□ Confirmed {file_path} risk level: {impact.get('risk_level', 'UNKNOWN')}",
+            f"□ Reviewed {impact.get('total_impact', 0)} dependent files",
+            "□ Read current implementation completely",
+            "□ Created tests for your changes"
+        ]
+        
+        if impact.get('risk_level') in ['CRITICAL', 'HIGH']:
+            checklist.extend([
+                "□ Got explicit approval for high-risk modification",
+                "□ Created comprehensive test coverage",
+                "□ Documented every change with reasoning"
+            ])
+            
+        return checklist
+        
     async def _initialize_async_services(self):
         """Initialize async services like vector database"""
         if self.vector_db:
