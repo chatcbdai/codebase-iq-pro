@@ -290,13 +290,13 @@ Are you passionate about code analysis and AI-assisted development? We're active
 - **Issues**: [GitHub Issues](https://github.com/chatcbdai/codebase-iq-pro/issues)
 - **Discussions**: [GitHub Discussions](https://github.com/chatcbdai/codebase-iq-pro/discussions)
 
-## 👥 Team
+## 🚀 CodebaseIQ Pro Team
 
-- 🦉 **Idea Guy**: Christopher Visser @CannaVis - [Owner](https://www.thcgummies.com/auther/christopher-visser)
-- ⚙️ **Code Generator**: Claude Opus 4 - [Developer](https://claude.ai/code)  
-- 🤖 **Team-Orchestrator**: ChatCBD @chatcbdai - [Assistant](https://chatcbd.com)
-- 🏧 **Sponsor**: Cannabidiol Life - [Stress-reliever](https://cbdoilsandedibles.com)
-- 📧 **Connect**: hi@chatcbd.com
+- 🦉 **Idea Guy**: @cannavis - [Christopher Visser](https://www.thcgummies.com/auther/christopher-visser)
+- ⚙️ **Developer**: [Claude Code Opus 4](https://claude.ai/code)  
+- 🤖 **Coordinator**: @chatcbdai - [ChatCBD](https://chatcbd.com)
+- 🏧 **Sponsor**: Cannabidiol Life - [Stress & Headache Reliever](https://cbdoilsandedibles.com)
+- 📧 **Give Us A Shout**: hi@chatcbd.com
 
 ---
 
