@@ -305,7 +305,8 @@ class CodebaseIQProServer:
                     path=arguments.get("path"),
                     analysis_type=arguments.get("analysis_type", "full"),
                     enable_embeddings=arguments.get("enable_embeddings", True),
-                    focus_areas=arguments.get("focus_areas")
+                    focus_areas=arguments.get("focus_areas"),
+                    force_refresh=arguments.get("force_refresh", True)  # Default to True for fresh analysis
                 )
                 return [types.TextContent(type="text", text=json.dumps(result, indent=2))]
                 
@@ -359,7 +360,8 @@ class CodebaseIQProServer:
             path: str,
             analysis_type: str = "full",
             enable_embeddings: bool = True,
-            focus_areas: Optional[List[str]] = None
+            focus_areas: Optional[List[str]] = None,
+            force_refresh: bool = False
         ) -> Dict[str, Any]:
             """Internal method to analyze a codebase"""
             try:
@@ -372,13 +374,17 @@ class CodebaseIQProServer:
                     
                 logger.info(f"Starting {analysis_type} analysis of {root_path}")
                 
-                # Check cache
+                # Check cache only if not forcing refresh
                 cache_key = f"{root_path}:{analysis_type}:{enable_embeddings}"
-                if self.cache:
+                if self.cache and not force_refresh:
                     cached_result = await self.cache.get(cache_key)
                     if cached_result:
                         logger.info("Returning cached analysis result")
                         return cached_result
+                elif force_refresh:
+                    logger.info("Force refresh requested, bypassing cache")
+                    # Clear any existing analysis
+                    self.current_analysis = None
                         
                 # Discover files
                 file_map = await self._discover_files(root_path)
@@ -466,18 +472,35 @@ class CodebaseIQProServer:
                 try:
                     storage_dir = Path.home() / ".codebaseiq"
                     storage_dir.mkdir(exist_ok=True)
-                    storage_path = storage_dir / "analysis_cache.json"
+                    
+                    # Use codebase-specific cache file name
+                    codebase_name = root_path.name
+                    cache_filename = f"analysis_cache_{codebase_name}.json"
+                    storage_path = storage_dir / cache_filename
+                    
+                    # Also save a pointer to the latest analysis
+                    latest_path = storage_dir / "latest_analysis.json"
                     
                     # Save with metadata
                     to_save = {
                         'analysis_timestamp': datetime.now().isoformat(),
                         'codebase_path': str(root_path),
+                        'codebase_name': codebase_name,
                         'files_analyzed': len(file_map),
                         **results
                     }
                     
                     with open(storage_path, 'w') as f:
                         json.dump(to_save, f, indent=2, default=str)
+                    
+                    # Save pointer to latest
+                    with open(latest_path, 'w') as f:
+                        json.dump({
+                            'latest_codebase': str(root_path),
+                            'cache_file': cache_filename,
+                            'timestamp': datetime.now().isoformat()
+                        }, f)
+                        
                     logger.info(f"Saved analysis to {storage_path}")
                 except Exception as e:
                     logger.warning(f"Failed to save analysis to persistent storage: {e}")
@@ -955,12 +978,57 @@ class CodebaseIQProServer:
             # If no cache or refresh requested, ensure we have analysis
             if not self.current_analysis:
                 # Try to load from persistent storage
-                storage_path = Path.home() / ".codebaseiq" / "analysis_cache.json"
-                if storage_path.exists() and not refresh:
+                storage_dir = Path.home() / ".codebaseiq"
+                
+                # First check if we have a latest analysis pointer
+                latest_path = storage_dir / "latest_analysis.json"
+                if latest_path.exists() and not refresh:
                     try:
-                        with open(storage_path, 'r') as f:
-                            self.current_analysis = json.load(f)
-                        logger.info("Loaded analysis from persistent storage")
+                        with open(latest_path, 'r') as f:
+                            latest_info = json.load(f)
+                        
+                        # Try to use the latest cache file
+                        cache_file = latest_info.get('cache_file', 'analysis_cache.json')
+                        storage_path = storage_dir / cache_file
+                        
+                        if storage_path.exists():
+                            with open(storage_path, 'r') as f:
+                                cached_data = json.load(f)
+                            
+                            # Validate that the cached analysis is for a relevant codebase
+                            cached_path = cached_data.get('codebase_path', 'unknown')
+                            codebase_name = cached_data.get('codebase_name', '')
+                            
+                            logger.info(f"Found cached analysis for: {cached_path}")
+                            
+                            # Don't use cached data from unrelated codebases
+                            if 'coin_rocket_launcher' in cached_path or 'token' in cached_path.lower():
+                                logger.warning("Cached analysis is from a different type of project, not using it")
+                                return {
+                                    'error': 'Cached analysis is from a different codebase. Please run analyze_codebase on the current codebase.',
+                                    'cached_codebase': cached_path,
+                                    'hint': 'Run analyze_codebase with the path to the CodebaseIQ Pro project first.'
+                                }
+                            
+                            # For CodebaseIQ Pro, we should have our own analysis
+                            if codebase_name == 'codebase_iq_pro' or cached_path.endswith('codebase_iq_pro'):
+                                self.current_analysis = cached_data
+                                logger.info("Loaded CodebaseIQ Pro analysis from persistent storage")
+                            else:
+                                # Try the old default path as fallback
+                                old_path = storage_dir / "analysis_cache.json"
+                                if old_path.exists():
+                                    with open(old_path, 'r') as f:
+                                        old_data = json.load(f)
+                                    if old_data.get('codebase_path', '').endswith('codebase_iq_pro'):
+                                        self.current_analysis = old_data
+                                        logger.info("Loaded analysis from old cache location")
+                                    else:
+                                        return {
+                                            'error': 'No analysis found for CodebaseIQ Pro. Please run analyze_codebase first.',
+                                            'found_analysis_for': cached_path,
+                                            'hint': 'Run: analyze_codebase with path="/Users/chrisryviss/codebase_iq_pro"'
+                                        }
                     except Exception as e:
                         logger.warning(f"Failed to load cached analysis: {e}")
                         
@@ -974,6 +1042,11 @@ class CodebaseIQProServer:
             enhanced = self.current_analysis.get('enhanced_understanding', {})
             ai_package = enhanced.get('ai_knowledge_package', {})
             
+            # Extract agent results
+            agent_results = self.current_analysis.get('agent_results', {})
+            deep_analysis = enhanced.get('deep_analysis', {})
+            cross_file_intel = enhanced.get('cross_file_intelligence', {})
+            
             # Build optimized context (keeping under 25K tokens)
             context = {
                 'instant_context': ai_package.get('instant_context', ''),
@@ -982,10 +1055,45 @@ class CodebaseIQProServer:
                 'safe_modification_guide': ai_package.get('safe_modification_guide', {}).get('golden_rules', []),
                 'business_summary': enhanced.get('business_logic', {}).get('executive_summary', ''),
                 'key_features': enhanced.get('business_logic', {}).get('key_features', [])[:10],
-                'main_components': enhanced.get('deep_analysis', {}).get('main_components', [])[:10],
+                'main_components': deep_analysis.get('main_components', [])[:10],
+                
+                # CRITICAL: Add missing architecture understanding
+                'architecture': {
+                    'dependency_graph': agent_results.get('dependency', {}).get('dependency_graph', {}),
+                    'architecture_style': agent_results.get('architecture', {}).get('architecture_style', ''),
+                    'layers': agent_results.get('architecture', {}).get('layers', {}),
+                    'components': agent_results.get('architecture', {}).get('components', {})[:10]
+                },
+                
+                # CRITICAL: Add missing technical stack details
+                'technical_stack': {
+                    'languages': deep_analysis.get('languages_found', []),
+                    'frameworks': agent_results.get('version', {}).get('requirements', {}),
+                    'package_managers': agent_results.get('dependency', {}).get('package_managers', []),
+                    'external_dependencies': agent_results.get('dependency', {}).get('external_dependencies', {}),
+                    'build_scripts': agent_results.get('pattern', {}).get('build_patterns', [])
+                },
+                
+                # CRITICAL: Add missing code intelligence
+                'code_intelligence': {
+                    'entry_points': deep_analysis.get('entry_points', []),
+                    'api_boundaries': cross_file_intel.get('api_boundaries', {})[:10],
+                    'service_components': agent_results.get('architecture', {}).get('components', {})[:10],
+                    'critical_interfaces': cross_file_intel.get('critical_interfaces', [])[:10],
+                    'error_handling_patterns': agent_results.get('pattern', {}).get('error_patterns', [])[:5]
+                },
+                
+                # CRITICAL: Add missing security info
+                'security': {
+                    'vulnerabilities': agent_results.get('security', {}).get('vulnerabilities', [])[:10],
+                    'security_score': agent_results.get('security', {}).get('security_score', 0),
+                    'auth_mechanisms': agent_results.get('security', {}).get('auth_mechanisms', [])
+                },
+                
                 'testing_info': {
                     'framework': ai_package.get('testing_requirements', {}).get('test_framework', ''),
-                    'commands': ai_package.get('testing_requirements', {}).get('test_commands', [])
+                    'commands': ai_package.get('testing_requirements', {}).get('test_commands', []),
+                    'coverage': agent_results.get('test_coverage', {}).get('coverage_percentage', 'unknown')
                 },
                 'quick_reference': ai_package.get('quick_reference', {}),
                 'metadata': {

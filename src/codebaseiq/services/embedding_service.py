@@ -54,12 +54,14 @@ class OpenAIEmbeddingService(EmbeddingService):
     def _initialize_client(self):
         """Initialize OpenAI client"""
         try:
-            import openai
-            openai.api_key = self.api_key
-            self.client = openai
+            from openai import OpenAI
+            self.client = OpenAI(api_key=self.api_key)
             logger.info(f"Initialized OpenAI embedding service with model: {self.model}")
         except ImportError:
             logger.error("OpenAI client not installed. Run: pip install openai")
+            raise
+        except Exception as e:
+            logger.error(f"Failed to initialize OpenAI client: {e}")
             raise
             
     async def embed_text(self, text: str) -> np.ndarray:
