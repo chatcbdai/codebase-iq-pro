@@ -463,7 +463,9 @@ class CrossFileIntelligence:
             dependent_count = len(dependents)
             
             if dependent_count >= 2:  # Lower threshold for better coverage
-                context = file_contexts.get(file_path, {})
+                context = file_contexts.get(file_path, None)
+                if context is None:
+                    continue
                 
                 # Analyze what makes this interface critical
                 interface_info = {
@@ -492,8 +494,10 @@ class CrossFileIntelligence:
         # Handle both dict and object contexts
         if hasattr(context, 'purpose'):
             purpose_lower = str(context.purpose).lower()
-        else:
+        elif isinstance(context, dict):
             purpose_lower = str(context.get('purpose', '')).lower()
+        else:
+            purpose_lower = ''
         
         if 'config' in file_lower or 'settings' in file_lower:
             return "Configuration Interface"
@@ -515,7 +519,12 @@ class CrossFileIntelligence:
         exported = []
         
         # From critical functions
-        critical_funcs = context.critical_functions if hasattr(context, 'critical_functions') else context.get('critical_functions', [])
+        if hasattr(context, 'critical_functions'):
+            critical_funcs = context.critical_functions
+        elif isinstance(context, dict):
+            critical_funcs = context.get('critical_functions', [])
+        else:
+            critical_funcs = []
         for func in critical_funcs[:5]:
             if func.get('is_exported') or not func['name'].startswith('_'):
                 exported.append(f"function: {func['name']}")
@@ -535,7 +544,12 @@ class CrossFileIntelligence:
             score += 10
             
         # Files with complex functions should be stable
-        critical_funcs = context.critical_functions if hasattr(context, 'critical_functions') else context.get('critical_functions', [])
+        if hasattr(context, 'critical_functions'):
+            critical_funcs = context.critical_functions
+        elif isinstance(context, dict):
+            critical_funcs = context.get('critical_functions', [])
+        else:
+            critical_funcs = []
         if critical_funcs:
             avg_complexity = sum(f.get('complexity', 1) for f in critical_funcs) / len(critical_funcs)
             score += int(avg_complexity * 2)
@@ -667,12 +681,22 @@ class CrossFileIntelligence:
                 risk_factors.append(f"Impact Risk: {impact['risk_level']}")
                 
             # From file analysis - handle both dict and object
-            mod_risk = context.modification_risk if hasattr(context, 'modification_risk') else context.get('modification_risk', '')
+            if hasattr(context, 'modification_risk'):
+                mod_risk = context.modification_risk
+            elif isinstance(context, dict):
+                mod_risk = context.get('modification_risk', '')
+            else:
+                mod_risk = ''
             if 'CRITICAL' in mod_risk or 'HIGH' in mod_risk:
                 risk_factors.append(f"File Risk: {mod_risk}")
                 
             # From security analysis
-            sec_concerns = context.security_concerns if hasattr(context, 'security_concerns') else context.get('security_concerns', [])
+            if hasattr(context, 'security_concerns'):
+                sec_concerns = context.security_concerns
+            elif isinstance(context, dict):
+                sec_concerns = context.get('security_concerns', [])
+            else:
+                sec_concerns = []
             if len(sec_concerns) > 2:
                 risk_factors.append(f"Security Concerns: {len(sec_concerns)}")
                 
@@ -715,11 +739,21 @@ class CrossFileIntelligence:
         if impact.get('total_impact', 0) > 5:
             checklist.append(f"✓ Review and update {impact['total_impact']} dependent files")
             
-        sec_concerns = context.security_concerns if hasattr(context, 'security_concerns') else context.get('security_concerns', [])
+        if hasattr(context, 'security_concerns'):
+            sec_concerns = context.security_concerns
+        elif isinstance(context, dict):
+            sec_concerns = context.get('security_concerns', [])
+        else:
+            sec_concerns = []
         if sec_concerns:
             checklist.append("✓ Security review required - check for vulnerabilities")
             
-        err_handling = context.error_handling if hasattr(context, 'error_handling') else context.get('error_handling', [])
+        if hasattr(context, 'error_handling'):
+            err_handling = context.error_handling
+        elif isinstance(context, dict):
+            err_handling = context.get('error_handling', [])
+        else:
+            err_handling = []
         if err_handling:
             checklist.append("✓ Preserve error handling logic and test error cases")
             
@@ -745,7 +779,12 @@ class CrossFileIntelligence:
                 "Create abstraction layer for safer changes"
             ])
             
-        language = context.language if hasattr(context, 'language') else context.get('language', '')
+        if hasattr(context, 'language'):
+            language = context.language
+        elif isinstance(context, dict):
+            language = context.get('language', '')
+        else:
+            language = ''
         if language == "python":
             alternatives.append("Use `warnings.deprecated` for gradual migration")
         elif language in ["javascript", "typescript"]:

@@ -358,14 +358,30 @@ class BusinessLogicExtractor:
             # Check file contexts
             for file_path, context in file_contexts.items():
                 # Get relevant text to check
-                purpose = getattr(context, 'purpose', '') if hasattr(context, 'purpose') else str(context.get('purpose', ''))
-                business_logic = getattr(context, 'business_logic', '') if hasattr(context, 'business_logic') else str(context.get('business_logic', ''))
+                if hasattr(context, 'purpose'):
+                    purpose = getattr(context, 'purpose', '')
+                elif isinstance(context, dict):
+                    purpose = str(context.get('purpose', ''))
+                else:
+                    purpose = ''
+                    
+                if hasattr(context, 'business_logic'):
+                    business_logic = getattr(context, 'business_logic', '')
+                elif isinstance(context, dict):
+                    business_logic = str(context.get('business_logic', ''))
+                else:
+                    business_logic = ''
                 combined_text = f"{file_path} {purpose} {business_logic}".lower()
                 
                 # Check for journey keywords
                 matches = sum(1 for keyword in journey_info["keywords"] if keyword in combined_text)
                 if matches >= 2:  # At least 2 keyword matches
-                    critical_funcs = context.critical_functions if hasattr(context, 'critical_functions') else context.get('critical_functions', [])
+                    if hasattr(context, 'critical_functions'):
+                        critical_funcs = context.critical_functions
+                    elif isinstance(context, dict):
+                        critical_funcs = context.get('critical_functions', [])
+                    else:
+                        critical_funcs = []
                     journey_files.append({
                         "file": file_path,
                         "role": purpose,
@@ -457,15 +473,30 @@ class BusinessLogicExtractor:
                 context = file_contexts[file_path]
                 
                 # Check for critical indicators
-                sec_concerns = context.security_concerns if hasattr(context, 'security_concerns') else context.get('security_concerns', [])
+                if hasattr(context, 'security_concerns'):
+                    sec_concerns = context.security_concerns
+                elif isinstance(context, dict):
+                    sec_concerns = context.get('security_concerns', [])
+                else:
+                    sec_concerns = []
                 if sec_concerns:
                     critical_points.append(f"{file_path}: Security validation required")
                     
-                error_handling = context.error_handling if hasattr(context, 'error_handling') else context.get('error_handling', [])
+                if hasattr(context, 'error_handling'):
+                    error_handling = context.error_handling
+                elif isinstance(context, dict):
+                    error_handling = context.get('error_handling', [])
+                else:
+                    error_handling = []
                 if len(error_handling) > 2:
                     critical_points.append(f"{file_path}: Complex error handling")
                     
-                side_effects = context.side_effects if hasattr(context, 'side_effects') else context.get('side_effects', [])
+                if hasattr(context, 'side_effects'):
+                    side_effects = context.side_effects
+                elif isinstance(context, dict):
+                    side_effects = context.get('side_effects', [])
+                else:
+                    side_effects = []
                 if "Database operations" in side_effects:
                     critical_points.append(f"{file_path}: Data persistence point")
                     
@@ -626,9 +657,26 @@ class BusinessLogicExtractor:
                         context = file_contexts[file_path]
                         
                         # Get context attributes
-                        purpose = context.purpose if hasattr(context, 'purpose') else context.get('purpose', '')
-                        business_logic = context.business_logic if hasattr(context, 'business_logic') else context.get('business_logic', '')
-                        side_effects = context.side_effects if hasattr(context, 'side_effects') else context.get('side_effects', [])
+                        if hasattr(context, 'purpose'):
+                            purpose = context.purpose
+                        elif isinstance(context, dict):
+                            purpose = context.get('purpose', '')
+                        else:
+                            purpose = ''
+                            
+                        if hasattr(context, 'business_logic'):
+                            business_logic = context.business_logic
+                        elif isinstance(context, dict):
+                            business_logic = context.get('business_logic', '')
+                        else:
+                            business_logic = ''
+                            
+                        if hasattr(context, 'side_effects'):
+                            side_effects = context.side_effects
+                        elif isinstance(context, dict):
+                            side_effects = context.get('side_effects', [])
+                        else:
+                            side_effects = []
                         
                         business_steps.append({
                             "technical_step": step,

@@ -156,7 +156,7 @@ class CodebaseIQProServer:
             return [
                 types.Tool(
                     name="get_codebase_context",
-                    description="ALWAYS USE THIS FIRST! Get essential codebase context for safe modifications. Returns danger zones, impact analysis, and business understanding.",
+                    description="Get essential codebase context for safe modifications. Returns danger zones, impact analysis, and business understanding.",
                     inputSchema={
                         "type": "object",
                         "properties": {
@@ -166,7 +166,7 @@ class CodebaseIQProServer:
                 ),
                 types.Tool(
                     name="check_understanding",
-                    description="REQUIRED before ANY code implementation! Verify your understanding of the codebase and get approval score.",
+                    description="Verify your understanding of the codebase and get approval score before code implementation.",
                     inputSchema={
                         "type": "object",
                         "properties": {
