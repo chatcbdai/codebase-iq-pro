@@ -32,9 +32,15 @@ def check_python_version():
 def check_package_installed(package_name):
     """Check if a Python package is installed"""
     try:
-        __import__(package_name.replace('-', '_'))
+        # Special handling for pinecone
+        if package_name == 'pinecone-client':
+            # Check for the new pinecone package instead
+            __import__('pinecone')
+            return True
+        else:
+            __import__(package_name.replace('-', '_'))
         return True
-    except ImportError:
+    except (ImportError, Exception):
         return False
 
 def install_requirements():

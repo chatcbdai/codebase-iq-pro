@@ -19,6 +19,8 @@ from pathlib import Path
 from typing import Dict, List, Any, Optional, Set, Tuple, Union
 from datetime import datetime
 import logging
+import networkx as nx
+import aiofiles
 
 # Core imports
 from mcp.server import Server
@@ -189,17 +191,25 @@ class CodebaseIQProServer:
                     }
                 ),
                 types.Tool(
-                    name="analyze_codebase",
-                    description="Full codebase analysis (4-5 minutes). Use get_codebase_context instead for quick access.",
+                    name="get_and_set_the_codebase_knowledge_foundation",
+                    description="Run all 4 phases of analysis to establish complete codebase knowledge foundation. Runs 25K Gold tools, CIA tools, Crossing Guards, and Premium Embedders in optimal order.",
                     inputSchema={
                         "type": "object",
                         "properties": {
-                            "path": {"type": "string", "description": "Path to the codebase directory"},
-                            "analysis_type": {"type": "string", "enum": ["full", "security_focus", "performance_focus", "quick"], "default": "full"},
-                            "enable_embeddings": {"type": "boolean", "default": True},
-                            "focus_areas": {"type": "array", "items": {"type": "string"}}
-                        },
-                        "required": ["path"]
+                            "path": {"type": "string", "description": "Path to the codebase directory", "default": "."},
+                            "enable_embeddings": {"type": "boolean", "default": True, "description": "Enable semantic search capabilities"},
+                            "force_refresh": {"type": "boolean", "default": False, "description": "Force fresh analysis ignoring cache"}
+                        }
+                    }
+                ),
+                types.Tool(
+                    name="update_cached_knowledge_foundation",
+                    description="Check if codebase has changed since last analysis and update if needed. Compares cache timestamp with latest git commit.",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "path": {"type": "string", "description": "Path to the codebase directory", "default": "."}
+                        }
                     }
                 ),
                 types.Tool(
@@ -374,13 +384,17 @@ class CodebaseIQProServer:
                 )
                 return [types.TextContent(type="text", text=json.dumps(result, indent=2))]
                 
-            elif name == "analyze_codebase":
-                result = await self._analyze_codebase(
-                    path=arguments.get("path"),
-                    analysis_type=arguments.get("analysis_type", "full"),
+            elif name == "get_and_set_the_codebase_knowledge_foundation":
+                result = await self._get_and_set_knowledge_foundation(
+                    path=arguments.get("path", "."),
                     enable_embeddings=arguments.get("enable_embeddings", True),
-                    focus_areas=arguments.get("focus_areas"),
-                    force_refresh=arguments.get("force_refresh", True)  # Default to True for fresh analysis
+                    force_refresh=arguments.get("force_refresh", False)
+                )
+                return [types.TextContent(type="text", text=json.dumps(result, indent=2))]
+                
+            elif name == "update_cached_knowledge_foundation":
+                result = await self._update_cached_knowledge_foundation(
+                    path=arguments.get("path", ".")
                 )
                 return [types.TextContent(type="text", text=json.dumps(result, indent=2))]
                 
@@ -524,130 +538,11 @@ class CodebaseIQProServer:
                     'focus_areas': focus_areas or []
                 }
                 
-                # Execute orchestrated analysis
-                results = await self.orchestrator.execute(context, analysis_type)
-                
-                # Enhanced Understanding Phase - Provides immediate AI context
-                logger.info("🧠 Starting enhanced understanding for AI assistants...")
-                
-                # Read file contents for enhanced analysis
-                file_contents = {}
-                for rel_path, full_path in file_map.items():
-                    try:
-                        with open(full_path, 'r', encoding='utf-8', errors='ignore') as f:
-                            file_contents[rel_path] = f.read()
-                    except Exception as e:
-                        logger.warning(f"Could not read {rel_path}: {e}")
-                
-                # Phase 1: Deep Understanding
-                deep_agent = DeepUnderstandingAgent()
-                deep_contexts = {}
-                for file_path, content in file_contents.items():
-                    try:
-                        context = deep_agent.analyze_file(file_path, content)
-                        deep_contexts[file_path] = context
-                    except Exception as e:
-                        logger.warning(f"Deep analysis failed for {file_path}: {e}")
-                
-                deep_understanding = deep_agent.generate_understanding_summary()
-                
-                # Phase 2: Cross-File Intelligence
-                cross_intel = CrossFileIntelligence()
-                cross_file_results = cross_intel.analyze_relationships(deep_contexts, file_contents)
-                
-                # Phase 3: Business Logic Extraction
-                business_extractor = BusinessLogicExtractor()
-                business_results = business_extractor.extract_business_logic(
-                    deep_contexts, cross_file_results, file_contents
-                )
-                
-                # Phase 4: AI Knowledge Packaging
-                packager = AIKnowledgePackager()
-                ai_knowledge_package = packager.create_knowledge_package(
-                    deep_understanding,
-                    cross_file_results,
-                    business_results,
-                    len(file_map)
-                )
-                
-                # Add enhanced understanding to results
-                results['enhanced_understanding'] = {
-                    'deep_analysis': deep_understanding,
-                    'cross_file_intelligence': cross_file_results,
-                    'business_logic': business_results,
-                    'ai_knowledge_package': ai_knowledge_package
-                }
-                
-                # Store in cache
-                if self.cache:
-                    await self.cache.set(cache_key, results, ttl=3600)  # 1 hour
-                    
-                # Store current analysis
-                self.current_analysis = results
-                
-                # Save to persistent storage
-                try:
-                    storage_dir = Path.home() / ".codebaseiq"
-                    storage_dir.mkdir(exist_ok=True)
-                    
-                    # Use codebase-specific cache file name
-                    codebase_name = root_path.name
-                    cache_filename = f"analysis_cache_{codebase_name}.json"
-                    storage_path = storage_dir / cache_filename
-                    
-                    # Also save a pointer to the latest analysis
-                    latest_path = storage_dir / "latest_analysis.json"
-                    
-                    # Save with metadata
-                    to_save = {
-                        'analysis_timestamp': datetime.now().isoformat(),
-                        'codebase_path': str(root_path),
-                        'codebase_name': codebase_name,
-                        'files_analyzed': len(file_map),
-                        **results
-                    }
-                    
-                    with open(storage_path, 'w') as f:
-                        json.dump(to_save, f, indent=2, default=str)
-                    
-                    # Save pointer to latest
-                    with open(latest_path, 'w') as f:
-                        json.dump({
-                            'latest_codebase': str(root_path),
-                            'cache_file': cache_filename,
-                            'timestamp': datetime.now().isoformat()
-                        }, f)
-                        
-                    logger.info(f"Saved analysis to {storage_path}")
-                except Exception as e:
-                    logger.warning(f"Failed to save analysis to persistent storage: {e}")
-                
-                # Return optimized response (under 25K tokens)
+                # DEPRECATED: This method should not run any agents
                 return {
-                    'status': 'success',
-                    'path': str(root_path),
-                    'files_analyzed': len(file_map),
-                    'analysis_type': analysis_type,
-                    'summary': {
-                        'total_files': len(file_map),
-                        'languages': list(set(context.get('language', 'unknown') 
-                                           for context in deep_contexts.values())),
-                        'high_risk_files': len([f for f, z in cross_file_results.get('impact_zones', {}).items()
-                                              if z.get('risk_level') in ['CRITICAL', 'HIGH']]),
-                        'key_features': business_results.get('key_features', [])[:5]
-                    },
-                    'instant_context': ai_knowledge_package.get('instant_context', ''),
-                    'danger_zones_preview': {
-                        'summary': ai_knowledge_package.get('danger_zones', {}).get('summary', ''),
-                        'critical_count': len(ai_knowledge_package.get('danger_zones', {}).get('do_not_modify', [])),
-                        'high_risk_count': len(ai_knowledge_package.get('danger_zones', {}).get('extreme_caution', []))
-                    },
-                    'next_steps': [
-                        'Use get_codebase_context for full analysis details',
-                        'Use check_understanding before any implementation',
-                        'Use get_modification_guidance for specific files'
-                    ],
-                    'storage_location': str(Path.home() / ".codebaseiq" / "analysis_cache.json")
+                    'error': 'analyze_codebase is deprecated',
+                    'message': 'Please use get_and_set_the_codebase_knowledge_foundation instead',
+                    'hint': 'The new tool runs all analysis phases in optimal order without token limit issues'
                 }
                 
             except Exception as e:
@@ -669,12 +564,12 @@ class CodebaseIQProServer:
             if not self.vector_db:
                 return {
                     'error': 'Vector search not available. Set PINECONE_API_KEY or use Qdrant.',
-                    'suggestion': 'Run analyze_codebase with enable_embeddings=true first'
+                    'suggestion': 'Run get_and_set_the_codebase_knowledge_foundation with enable_embeddings=true first'
                 }
                 
             if not self.current_analysis:
                 return {
-                    'error': 'No codebase analyzed yet. Run analyze_codebase first.'
+                    'error': 'No codebase analyzed yet. Run get_and_set_the_codebase_knowledge_foundation first.'
                 }
                 
             try:
@@ -731,7 +626,7 @@ class CodebaseIQProServer:
                 
             if not self.current_analysis:
                 return {
-                    'error': 'No codebase analyzed yet. Run analyze_codebase first.'
+                    'error': 'No codebase analyzed yet. Run get_and_set_the_codebase_knowledge_foundation first.'
                 }
                 
             try:
@@ -779,7 +674,7 @@ class CodebaseIQProServer:
             """Internal method to get a summary of the current analysis results"""
             if not self.current_analysis:
                 return {
-                    'error': 'No analysis performed yet. Run analyze_codebase first.'
+                    'error': 'No analysis performed yet. Run get_and_set_the_codebase_knowledge_foundation first.'
                 }
                 
             summary = self.current_analysis.get('summary', {})
@@ -797,7 +692,7 @@ class CodebaseIQProServer:
             """Internal method to get list of danger zones from security analysis"""
             if not self.current_analysis:
                 return {
-                    'error': 'No analysis performed yet. Run analyze_codebase first.'
+                    'error': 'No analysis performed yet. Run get_and_set_the_codebase_knowledge_foundation first.'
                 }
                 
             security_results = self.current_analysis.get('agent_results', {}).get('security', {})
@@ -813,7 +708,7 @@ class CodebaseIQProServer:
             """Internal method to get dependency analysis results"""
             if not self.current_analysis:
                 return {
-                    'error': 'No analysis performed yet. Run analyze_codebase first.'
+                    'error': 'No analysis performed yet. Run get_and_set_the_codebase_knowledge_foundation first.'
                 }
                 
             dep_results = self.current_analysis.get('agent_results', {}).get('dependency', {})
@@ -829,14 +724,14 @@ class CodebaseIQProServer:
         """Get comprehensive AI knowledge package for immediate understanding"""
         if not self.current_analysis:
             return {
-                'error': 'No analysis performed yet. Run analyze_codebase first.',
+                'error': 'No analysis performed yet. Run get_and_set_the_codebase_knowledge_foundation first.',
                 'hint': 'Use get_codebase_context instead for optimized access'
             }
             
         enhanced = self.current_analysis.get('enhanced_understanding', {})
         if not enhanced:
             return {
-                'error': 'Enhanced understanding not available. Run analyze_codebase with latest version.'
+                'error': 'Enhanced understanding not available. Run get_and_set_the_codebase_knowledge_foundation first.'
             }
             
         ai_package = enhanced.get('ai_knowledge_package', {})
@@ -857,13 +752,13 @@ class CodebaseIQProServer:
         """Get business logic understanding for the codebase"""
         if not self.current_analysis:
             return {
-                'error': 'No analysis performed yet. Run analyze_codebase first.'
+                'error': 'No analysis performed yet. Run get_and_set_the_codebase_knowledge_foundation first.'
             }
             
         enhanced = self.current_analysis.get('enhanced_understanding', {})
         if not enhanced:
             return {
-                'error': 'Enhanced understanding not available. Run analyze_codebase with latest version.'
+                'error': 'Enhanced understanding not available. Run get_and_set_the_codebase_knowledge_foundation first.'
             }
             
         business_logic = enhanced.get('business_logic', {})
@@ -910,13 +805,13 @@ class CodebaseIQProServer:
         """Get specific guidance for safely modifying files"""
         if not self.current_analysis:
             return {
-                'error': 'No analysis performed yet. Run analyze_codebase first.'
+                'error': 'No analysis performed yet. Run get_and_set_the_codebase_knowledge_foundation first.'
             }
             
         enhanced = self.current_analysis.get('enhanced_understanding', {})
         if not enhanced:
             return {
-                'error': 'Enhanced understanding not available. Run analyze_codebase with latest version.'
+                'error': 'Enhanced understanding not available. Run get_and_set_the_codebase_knowledge_foundation first.'
             }
             
         cross_file_intel = enhanced.get('cross_file_intelligence', {})
@@ -1122,7 +1017,7 @@ class CodebaseIQProServer:
             # Check if we have at least some analysis data
             if all(isinstance(a, Exception) or a.get('error') for a in analyses):
                 return {
-                    'error': 'No analysis available. Please run analyze_codebase first.',
+                    'error': 'No analysis available. Please run get_and_set_the_codebase_knowledge_foundation first.',
                     'hint': 'This is a one-time setup that takes 4-5 minutes.',
                     'details': [str(a) if isinstance(a, Exception) else a.get('error') for a in analyses]
                 }
@@ -1235,9 +1130,11 @@ class CodebaseIQProServer:
         Check AI's understanding before allowing code implementation.
         This is the "red flag" system that prevents overconfident changes.
         """
-        if not self.current_analysis:
+        # Get the codebase context to check understanding
+        context = await self._get_codebase_context(refresh=False)
+        if context.get('error'):
             return {
-                'error': 'No analysis available. Run get_codebase_context first.',
+                'error': 'No analysis available. Run get_and_set_the_codebase_knowledge_foundation first.',
                 'approval': False,
                 'score': 0
             }
@@ -1262,8 +1159,7 @@ class CodebaseIQProServer:
                 feedback.append(f"✓ Identified {len(files_to_modify)} files to modify")
                 
                 # Check if any are dangerous
-                danger_zones = self.current_analysis.get('enhanced_understanding', {}).get(
-                    'ai_knowledge_package', {}).get('danger_zones', {})
+                danger_zones = context.get('danger_zones', {})
                 critical_files = set()
                 for f in danger_zones.get('do_not_modify', []):
                     critical_files.add(f.get('file', ''))
@@ -1456,7 +1352,7 @@ class CodebaseIQProServer:
 - Files: {total_files} | Languages: {', '.join(languages[:3])} | Critical files: {critical_count + high_count}
 
 💼 **What This Does:**
-{business.get('executive_summary', 'Codebase analysis not yet complete. Run analyze_codebase first.')[:200]}
+{business.get('executive_summary', 'Codebase analysis not yet complete. Run get_and_set_the_codebase_knowledge_foundation first.')[:200]}
 
 🌟 **Key Features:** {', '.join(key_features[:5])}
 
@@ -1653,6 +1549,101 @@ Remember: This is an AI-optimized summary. Use individual analysis tools for det
                 ),
             )
 
+    # Helper method for running individual agents
+    async def _run_individual_agent(self, agent_type: str, codebase_path: Path) -> Dict[str, Any]:
+        """Run an individual analysis agent without requiring full analysis"""
+        logger.info(f"Running {agent_type} agent independently...")
+        
+        # Discover files
+        file_map = await self._discover_files(codebase_path)
+        
+        # Create entities
+        entities = {}
+        for rel_path in file_map:
+            entities[rel_path] = EnhancedCodeEntity(
+                path=rel_path,
+                type=self._determine_entity_type(rel_path),
+                name=Path(rel_path).stem
+            )
+        
+        # Prepare context for agent
+        agent_context = {
+            'root_path': codebase_path,
+            'file_map': file_map,
+            'entities': entities
+        }
+        
+        # Run the appropriate agent
+        if agent_type == 'dependency':
+            agent = DependencyAnalysisAgent()
+        elif agent_type == 'security':
+            agent = SecurityAuditAgent()
+        elif agent_type == 'architecture':
+            agent = ArchitectureAnalysisAgent()
+        elif agent_type == 'version':
+            agent = VersionCompatibilityAgent()
+        elif agent_type == 'pattern':
+            agent = PatternDetectionAgent()
+        elif agent_type == 'performance':
+            agent = PerformanceAnalysisAgent()
+        else:
+            raise ValueError(f"Unknown agent type: {agent_type}")
+            
+        return await agent.analyze(agent_context)
+    
+    async def _run_enhanced_analysis(self, codebase_path: Path) -> Dict[str, Any]:
+        """Run enhanced understanding analysis (deep understanding, cross-file, business logic)"""
+        logger.info("Running enhanced understanding analysis...")
+        
+        # Discover files and read contents
+        file_map = await self._discover_files(codebase_path)
+        file_contents = {}
+        for rel_path, full_path in file_map.items():
+            try:
+                with open(full_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    file_contents[rel_path] = f.read()
+            except Exception as e:
+                logger.warning(f"Could not read {rel_path}: {e}")
+        
+        # Phase 1: Deep Understanding
+        deep_agent = DeepUnderstandingAgent()
+        deep_contexts = {}
+        for file_path, content in file_contents.items():
+            try:
+                context = deep_agent.analyze_file(file_path, content)
+                deep_contexts[file_path] = context
+            except Exception as e:
+                logger.warning(f"Deep analysis failed for {file_path}: {e}")
+        
+        deep_understanding = deep_agent.generate_understanding_summary()
+        
+        # Phase 2: Cross-File Intelligence
+        cross_intel = CrossFileIntelligence()
+        cross_file_results = cross_intel.analyze_relationships(deep_contexts, file_contents)
+        
+        # Phase 3: Business Logic Extraction
+        business_extractor = BusinessLogicExtractor()
+        business_results = business_extractor.extract_business_logic(
+            deep_contexts, cross_file_results, file_contents
+        )
+        
+        # Phase 4: AI Knowledge Packaging
+        packager = AIKnowledgePackager()
+        ai_knowledge_package = packager.create_knowledge_package(
+            deep_understanding,
+            cross_file_results,
+            business_results,
+            len(file_map)
+        )
+        
+        return {
+            'deep_analysis': deep_understanding,
+            'cross_file_intelligence': cross_file_results,
+            'business_logic': business_results,
+            'ai_knowledge_package': ai_knowledge_package,
+            'file_contexts': deep_contexts
+        }
+    
     # New individual analysis methods (25K tokens each)
     
     async def _get_dependency_analysis_full(self, 
@@ -1681,16 +1672,8 @@ Remember: This is an AI-optimized summary. Use individual analysis tools for det
                         logger.info(f"Updating dependency analysis for {len(changes)} changed files")
                         # TODO: Implement incremental dependency updates
                         
-            # Need full analysis
-            if not self.current_analysis:
-                return {
-                    'error': 'No analysis available. Run analyze_codebase first.',
-                    'hint': 'This is required for the initial setup.'
-                }
-                
-            # Extract dependency data
-            agent_results = self.current_analysis.get('agent_results', {})
-            dependency_data = agent_results.get('dependency', {})
+            # Need full analysis - run the dependency agent directly
+            dependency_data = await self._run_individual_agent('dependency', codebase_path)
             
             # Build comprehensive response
             result = {
@@ -1703,7 +1686,7 @@ Remember: This is an AI-optimized summary. Use individual analysis tools for det
                 'dependency_graph': dependency_data.get('dependency_graph', {}),
                 'external_dependencies': dependency_data.get('external_dependencies', {}),
                 'internal_dependencies': dependency_data.get('internal_dependencies', 0),
-                'file_dependencies': {},  # TODO: Add per-file dependency details
+                'file_dependencies': self._extract_file_dependencies(dependency_data),
                 'circular_dependencies': dependency_data.get('dependency_graph', {}).get('cycles', []),
                 'most_depended_on': dependency_data.get('dependency_graph', {}).get('most_depended_on', []),
                 'most_dependencies': dependency_data.get('dependency_graph', {}).get('most_dependencies', []),
@@ -1712,8 +1695,7 @@ Remember: This is an AI-optimized summary. Use individual analysis tools for det
             
             # Add transitive dependencies if requested
             if include_transitive:
-                # TODO: Calculate transitive dependencies
-                result['transitive_dependencies'] = {}
+                result['transitive_dependencies'] = self._calculate_transitive_dependencies(dependency_data)
                 
             # Ensure within token limit
             is_valid, tokens = self.token_manager.validate_output_size(result)
@@ -1729,6 +1711,188 @@ Remember: This is an AI-optimized summary. Use individual analysis tools for det
         except Exception as e:
             logger.error(f"Dependency analysis failed: {e}")
             return {'error': str(e)}
+    
+    def _extract_file_dependencies(self, dependency_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Extract per-file dependency details from raw dependency data"""
+        file_deps = {}
+        
+        # Check if we have the raw internal/external deps data
+        if 'raw_data' in dependency_data:
+            raw = dependency_data['raw_data']
+            internal_deps = raw.get('internal_deps', {})
+            external_deps = raw.get('external_deps', {})
+            
+            for file_path in set(list(internal_deps.keys()) + list(external_deps.keys())):
+                file_deps[file_path] = {
+                    'internal': list(internal_deps.get(file_path, [])),
+                    'external': list(external_deps.get(file_path, [])),
+                    'total': len(internal_deps.get(file_path, [])) + len(external_deps.get(file_path, []))
+                }
+        
+        return file_deps
+    
+    def _calculate_transitive_dependencies(self, dependency_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Calculate transitive dependencies from dependency graph"""
+        transitive_deps = {}
+        
+        # Get dependency graph if available
+        dep_graph_info = dependency_data.get('dependency_graph', {})
+        if 'raw_graph' in dep_graph_info:
+            # If we have the actual networkx graph
+            graph = dep_graph_info['raw_graph']
+            for node in graph.nodes():
+                # Get all reachable nodes (transitive dependencies)
+                reachable = nx.descendants(graph, node)
+                transitive_deps[node] = {
+                    'direct': list(graph.successors(node)),
+                    'transitive': list(reachable - set(graph.successors(node))),
+                    'total': len(reachable)
+                }
+        
+        return transitive_deps
+    
+    async def _calculate_language_breakdown(self, file_map: Dict[str, Path]) -> Dict[str, int]:
+        """Calculate file count breakdown by language"""
+        language_counts = {}
+        
+        ext_to_lang = {
+            '.py': 'Python',
+            '.js': 'JavaScript',
+            '.jsx': 'JavaScript',
+            '.ts': 'TypeScript', 
+            '.tsx': 'TypeScript',
+            '.java': 'Java',
+            '.go': 'Go',
+            '.rs': 'Rust',
+            '.cpp': 'C++',
+            '.c': 'C',
+            '.cs': 'C#',
+            '.rb': 'Ruby',
+            '.php': 'PHP',
+            '.swift': 'Swift',
+            '.kt': 'Kotlin',
+            '.scala': 'Scala',
+            '.r': 'R',
+            '.m': 'Objective-C',
+            '.html': 'HTML',
+            '.css': 'CSS',
+            '.scss': 'SCSS',
+            '.json': 'JSON',
+            '.xml': 'XML',
+            '.yaml': 'YAML',
+            '.yml': 'YAML',
+            '.md': 'Markdown',
+            '.sh': 'Shell',
+            '.bat': 'Batch',
+            '.sql': 'SQL'
+        }
+        
+        for _, full_path in file_map.items():
+            ext = full_path.suffix.lower()
+            lang = ext_to_lang.get(ext, 'Other')
+            language_counts[lang] = language_counts.get(lang, 0) + 1
+            
+        return language_counts
+    
+    async def _extract_env_variables(self, file_map: Dict[str, Path]) -> Dict[str, List[str]]:
+        """Extract environment variable usage from files"""
+        env_vars = {}
+        
+        # Common patterns for env var usage
+        patterns = [
+            r'os\.environ\.get\([\'"](\w+)[\'"]',  # Python os.environ.get
+            r'os\.environ\[[\'"](\w+)[\'"]',        # Python os.environ[]
+            r'process\.env\.(\w+)',                 # JavaScript/TypeScript
+            r'ENV\[[\'"](\w+)[\'"]',                # Ruby
+            r'\$ENV\{(\w+)\}',                      # Perl
+            r'getenv\([\'"](\w+)[\'"]',             # C/C++/PHP
+            r'\$\{(\w+)\}',                         # Shell variables
+            r'\$(\w+)',                             # Shell variables simple
+        ]
+        
+        import re
+        
+        for rel_path, full_path in file_map.items():
+            try:
+                # Only check text files
+                if full_path.suffix.lower() in ['.py', '.js', '.ts', '.jsx', '.tsx', '.java', '.go', '.rb', '.sh', '.env']:
+                    async with aiofiles.open(full_path, 'r', encoding='utf-8', errors='ignore') as f:
+                        content = await f.read()
+                        
+                    found_vars = set()
+                    for pattern in patterns:
+                        matches = re.findall(pattern, content)
+                        found_vars.update(matches)
+                    
+                    if found_vars:
+                        env_vars[rel_path] = list(found_vars)
+                        
+            except Exception:
+                # Skip files that can't be read
+                pass
+                
+        return env_vars
+    
+    async def _detect_config_files(self, file_map: Dict[str, Path]) -> Dict[str, str]:
+        """Detect and categorize configuration files"""
+        config_files = {}
+        
+        config_patterns = {
+            'package.json': 'Node.js package configuration',
+            'requirements.txt': 'Python package requirements',
+            'setup.py': 'Python package setup',
+            'setup.cfg': 'Python setup configuration',
+            'pyproject.toml': 'Python project configuration',
+            'Cargo.toml': 'Rust package configuration',
+            'go.mod': 'Go module configuration',
+            'pom.xml': 'Maven configuration',
+            'build.gradle': 'Gradle configuration',
+            'Gemfile': 'Ruby gem configuration',
+            'composer.json': 'PHP composer configuration',
+            '.env': 'Environment variables',
+            '.env.example': 'Environment variables template',
+            'config.json': 'JSON configuration',
+            'config.yaml': 'YAML configuration',
+            'config.yml': 'YAML configuration',
+            'settings.json': 'Settings configuration',
+            'appsettings.json': '.NET application settings',
+            'web.config': '.NET web configuration',
+            '.gitignore': 'Git ignore rules',
+            '.dockerignore': 'Docker ignore rules',
+            'Dockerfile': 'Docker container configuration',
+            'docker-compose.yml': 'Docker compose configuration',
+            'Makefile': 'Make build configuration',
+            'webpack.config.js': 'Webpack bundler configuration',
+            'vite.config.js': 'Vite bundler configuration',
+            'rollup.config.js': 'Rollup bundler configuration',
+            'tsconfig.json': 'TypeScript configuration',
+            'jest.config.js': 'Jest test configuration',
+            '.eslintrc': 'ESLint configuration',
+            '.prettierrc': 'Prettier configuration',
+            'babel.config.js': 'Babel configuration',
+            '.github/workflows': 'GitHub Actions workflows',
+            '.gitlab-ci.yml': 'GitLab CI configuration',
+            '.travis.yml': 'Travis CI configuration',
+            'jenkins': 'Jenkins configuration',
+            '.circleci/config.yml': 'CircleCI configuration'
+        }
+        
+        for rel_path, full_path in file_map.items():
+            file_name = full_path.name
+            
+            # Check exact matches
+            if file_name in config_patterns:
+                config_files[rel_path] = config_patterns[file_name]
+            # Check patterns
+            elif file_name.endswith('config.js') or file_name.endswith('config.json'):
+                config_files[rel_path] = f'{file_name.replace(".config", "")} configuration'
+            elif file_name.endswith('.yml') or file_name.endswith('.yaml'):
+                if 'config' in file_name.lower():
+                    config_files[rel_path] = 'YAML configuration file'
+            elif '.github/workflows' in rel_path:
+                config_files[rel_path] = 'GitHub Actions workflow'
+                
+        return config_files
             
     async def _get_security_analysis_full(self,
                                         force_refresh: bool = False,
@@ -1752,16 +1916,8 @@ Remember: This is an AI-optimized summary. Use individual analysis tools for det
                         logger.info("Returning cached security analysis")
                         return cached_data['analysis']
                         
-            # Need full analysis
-            if not self.current_analysis:
-                return {
-                    'error': 'No analysis available. Run analyze_codebase first.',
-                    'hint': 'This is required for the initial setup.'
-                }
-                
-            # Extract security data
-            agent_results = self.current_analysis.get('agent_results', {})
-            security_data = agent_results.get('security', {})
+            # Need full analysis - run the security agent directly
+            security_data = await self._run_individual_agent('security', codebase_path)
             
             # Filter vulnerabilities by severity
             all_vulns = security_data.get('vulnerabilities', [])
@@ -1829,16 +1985,8 @@ Remember: This is an AI-optimized summary. Use individual analysis tools for det
                         logger.info("Returning cached architecture analysis")
                         return cached_data['analysis']
                         
-            # Need full analysis
-            if not self.current_analysis:
-                return {
-                    'error': 'No analysis available. Run analyze_codebase first.',
-                    'hint': 'This is required for the initial setup.'
-                }
-                
-            # Extract architecture data
-            agent_results = self.current_analysis.get('agent_results', {})
-            arch_data = agent_results.get('architecture', {})
+            # Need full analysis - run the architecture agent directly
+            arch_data = await self._run_individual_agent('architecture', codebase_path)
             
             # Build comprehensive response
             result = {
@@ -1904,16 +2052,9 @@ Remember: This is an AI-optimized summary. Use individual analysis tools for det
                         logger.info("Returning cached business logic analysis")
                         return cached_data['analysis']
                         
-            # Need full analysis
-            if not self.current_analysis:
-                return {
-                    'error': 'No analysis available. Run analyze_codebase first.',
-                    'hint': 'This is required for the initial setup.'
-                }
-                
-            # Extract business logic data
-            enhanced = self.current_analysis.get('enhanced_understanding', {})
-            business_data = enhanced.get('business_logic', {})
+            # Need full analysis - run enhanced analysis
+            enhanced_results = await self._run_enhanced_analysis(codebase_path)
+            business_data = enhanced_results.get('business_logic', {})
             
             # Build comprehensive response
             result = {
@@ -1977,17 +2118,24 @@ Remember: This is an AI-optimized summary. Use individual analysis tools for det
                         logger.info("Returning cached technical stack analysis")
                         return cached_data['analysis']
                         
-            # Need full analysis
-            if not self.current_analysis:
-                return {
-                    'error': 'No analysis available. Run analyze_codebase first.',
-                    'hint': 'This is required for the initial setup.'
-                }
-                
-            # Extract technical stack data
-            agent_results = self.current_analysis.get('agent_results', {})
-            enhanced = self.current_analysis.get('enhanced_understanding', {})
-            deep_analysis = enhanced.get('deep_analysis', {})
+            # Need full analysis - run required agents
+            logger.info("Running technical stack analysis...")
+            
+            # Run dependency and version agents for technical stack
+            dependency_data = await self._run_individual_agent('dependency', codebase_path)
+            version_data = await self._run_individual_agent('version', codebase_path)
+            pattern_data = await self._run_individual_agent('pattern', codebase_path)
+            
+            # Run enhanced analysis for language detection
+            enhanced_results = await self._run_enhanced_analysis(codebase_path)
+            deep_analysis = enhanced_results.get('deep_analysis', {})
+            
+            # Create agent_results structure
+            agent_results = {
+                'dependency': dependency_data,
+                'version': version_data,
+                'pattern': pattern_data
+            }
             
             # Build comprehensive response
             result = {
@@ -2000,7 +2148,7 @@ Remember: This is an AI-optimized summary. Use individual analysis tools for det
                 'languages': {
                     'primary': deep_analysis.get('languages_found', [])[0] if deep_analysis.get('languages_found') else 'unknown',
                     'all': deep_analysis.get('languages_found', []),
-                    'file_breakdown': {}  # TODO: Add language breakdown by file count
+                    'file_breakdown': await self._calculate_language_breakdown(file_map)
                 },
                 'frameworks': agent_results.get('version', {}).get('requirements', {}),
                 'package_managers': agent_results.get('dependency', {}).get('package_managers', []),
@@ -2015,8 +2163,8 @@ Remember: This is an AI-optimized summary. Use individual analysis tools for det
             # Add configuration details if requested
             if include_configs:
                 result['configurations'] = {
-                    'environment_variables': {},  # TODO: Extract env var usage
-                    'config_files': {},  # TODO: List config files and their purposes
+                    'environment_variables': await self._extract_env_variables(file_map),
+                    'config_files': await self._detect_config_files(file_map),
                     'build_scripts': agent_results.get('pattern', {}).get('build_patterns', [])
                 }
                 
@@ -2057,18 +2205,23 @@ Remember: This is an AI-optimized summary. Use individual analysis tools for det
                         logger.info("Returning cached code intelligence analysis")
                         return cached_data['analysis']
                         
-            # Need full analysis
-            if not self.current_analysis:
-                return {
-                    'error': 'No analysis available. Run analyze_codebase first.',
-                    'hint': 'This is required for the initial setup.'
-                }
-                
-            # Extract code intelligence data
-            enhanced = self.current_analysis.get('enhanced_understanding', {})
-            deep_analysis = enhanced.get('deep_analysis', {})
-            cross_file_intel = enhanced.get('cross_file_intelligence', {})
-            agent_results = self.current_analysis.get('agent_results', {})
+            # Need full analysis - run required analyses
+            logger.info("Running code intelligence analysis...")
+            
+            # Run enhanced analysis for code intelligence
+            enhanced_results = await self._run_enhanced_analysis(codebase_path)
+            deep_analysis = enhanced_results.get('deep_analysis', {})
+            cross_file_intel = enhanced_results.get('cross_file_intelligence', {})
+            
+            # Run architecture and pattern agents
+            arch_data = await self._run_individual_agent('architecture', codebase_path)
+            pattern_data = await self._run_individual_agent('pattern', codebase_path)
+            
+            # Create agent_results structure
+            agent_results = {
+                'architecture': arch_data,
+                'pattern': pattern_data
+            }
             
             # Build comprehensive response
             result = {
@@ -2084,8 +2237,8 @@ Remember: This is an AI-optimized summary. Use individual analysis tools for det
                 'api_boundaries': cross_file_intel.get('api_boundaries', {}),
                 'service_registry': agent_results.get('architecture', {}).get('components', {}),
                 'critical_interfaces': cross_file_intel.get('critical_interfaces', []),
-                'function_signatures': {},  # TODO: Extract key function signatures
-                'class_hierarchy': {},  # TODO: Build class hierarchy
+                'function_signatures': deep_analysis.get('key_functions', {}),
+                'class_hierarchy': deep_analysis.get('class_hierarchy', {}),
                 'error_handling': {
                     'patterns': agent_results.get('pattern', {}).get('error_patterns', []),
                     'strategies': deep_analysis.get('error_handling_strategies', {})
@@ -2134,6 +2287,194 @@ Remember: This is an AI-optimized summary. Use individual analysis tools for det
         """Generate ASCII diagram for components"""
         # Simple component diagram
         return "Component diagram generation not yet implemented"
+    
+    async def _get_and_set_knowledge_foundation(
+            self,
+            path: str = ".",
+            enable_embeddings: bool = True,
+            force_refresh: bool = False
+        ) -> Dict[str, Any]:
+        """Run all 4 phases of analysis to establish complete codebase knowledge foundation"""
+        try:
+            root_path = Path(path).resolve()
+            if not root_path.exists():
+                return {'error': f'Path does not exist: {path}'}
+                
+            if not root_path.is_dir():
+                return {'error': f'Path is not a directory: {path}'}
+                
+            logger.info("🚀 Starting complete knowledge foundation setup...")
+            start_time = datetime.now()
+            
+            # Phase 1: 25K Gold Tools (Foundation Data) - Run in parallel
+            logger.info("Phase 1: Running 25K Gold tools in parallel...")
+            phase1_results = await asyncio.gather(
+                self._get_dependency_analysis_full(force_refresh=force_refresh),
+                self._get_security_analysis_full(force_refresh=force_refresh),
+                self._get_architecture_analysis_full(force_refresh=force_refresh),
+                self._get_technical_stack_analysis_full(force_refresh=force_refresh),
+                self._get_code_intelligence_analysis_full(force_refresh=force_refresh),
+                self._get_business_logic_analysis_full(force_refresh=force_refresh),
+                return_exceptions=True
+            )
+            
+            # Check for errors in Phase 1
+            phase1_errors = [str(r) for r in phase1_results if isinstance(r, Exception)]
+            if phase1_errors:
+                logger.warning(f"Phase 1 had {len(phase1_errors)} errors: {phase1_errors}")
+            
+            # Phase 2: CIA Tools (Enhanced Understanding) - Already run within business logic analysis
+            logger.info("Phase 2: CIA tools completed (ran within business logic analysis)")
+            
+            # Phase 3: Crossing Guards (Safety Features)
+            logger.info("Phase 3: Running Crossing Guards tools...")
+            
+            # These tools depend on the previous phases
+            context_result = await self._get_codebase_context(refresh=False)
+            
+            # Phase 4: Premium Embedders (if enabled)
+            if enable_embeddings and self.vector_db:
+                logger.info("Phase 4: Running Premium Embedders...")
+                # Run embedding agent on all analyzed content
+                file_map = await self._discover_files(root_path)
+                entities = {}
+                for rel_path in file_map:
+                    entities[rel_path] = EnhancedCodeEntity(
+                        path=rel_path,
+                        type=self._determine_entity_type(rel_path),
+                        name=Path(rel_path).stem
+                    )
+                
+                embedding_context = {
+                    'root_path': root_path,
+                    'file_map': file_map,
+                    'entities': entities,
+                    'enable_embeddings': True,
+                    'previous_results': {
+                        'dependency': phase1_results[0] if not isinstance(phase1_results[0], Exception) else {},
+                        'security': phase1_results[1] if not isinstance(phase1_results[1], Exception) else {},
+                        'architecture': phase1_results[2] if not isinstance(phase1_results[2], Exception) else {},
+                        'technical': phase1_results[3] if not isinstance(phase1_results[3], Exception) else {},
+                        'intelligence': phase1_results[4] if not isinstance(phase1_results[4], Exception) else {},
+                        'business': phase1_results[5] if not isinstance(phase1_results[5], Exception) else {}
+                    }
+                }
+                
+                embedding_agent = EmbeddingAgent()
+                await embedding_agent.analyze(embedding_context)
+                logger.info("✅ Embeddings created successfully")
+            else:
+                logger.info("Phase 4: Skipped (embeddings not enabled)")
+            
+            # Calculate execution time
+            execution_time = (datetime.now() - start_time).total_seconds()
+            
+            # Return summary
+            return {
+                'status': 'success',
+                'message': 'Knowledge foundation established successfully',
+                'execution_time': f"{execution_time:.2f} seconds",
+                'phases_completed': {
+                    'phase1_25k_gold': 'completed' if not all(isinstance(r, Exception) for r in phase1_results) else 'partial',
+                    'phase2_cia': 'completed',
+                    'phase3_crossing_guards': 'completed' if not context_result.get('error') else 'failed',
+                    'phase4_embedders': 'completed' if enable_embeddings and self.vector_db else 'skipped'
+                },
+                'files_analyzed': len(await self._discover_files(root_path)),
+                'next_steps': [
+                    'Use individual analysis tools to access specific data',
+                    'Use get_codebase_context for aggregated safety context',
+                    'Use semantic_code_search to search your codebase',
+                    'Use check_understanding before making changes'
+                ],
+                'errors': phase1_errors if phase1_errors else None
+            }
+            
+        except Exception as e:
+            logger.error(f"Knowledge foundation setup failed: {e}")
+            return {
+                'status': 'error',
+                'error': str(e),
+                'path': path
+            }
+    
+    async def _update_cached_knowledge_foundation(
+            self,
+            path: str = "."
+        ) -> Dict[str, Any]:
+        """Check if codebase has changed and update if needed"""
+        try:
+            root_path = Path(path).resolve()
+            if not root_path.exists():
+                return {'error': f'Path does not exist: {path}'}
+                
+            logger.info("Checking for codebase changes...")
+            
+            # Get latest git commit
+            try:
+                import subprocess
+                result = subprocess.run(
+                    ['git', 'log', '-1', '--format=%H %ct'],
+                    cwd=root_path,
+                    capture_output=True,
+                    text=True
+                )
+                if result.returncode == 0:
+                    commit_hash, commit_timestamp = result.stdout.strip().split()
+                    commit_time = datetime.fromtimestamp(int(commit_timestamp))
+                else:
+                    # Not a git repo, use file modification times
+                    commit_time = datetime.now()
+                    commit_hash = "no-git"
+            except Exception as e:
+                logger.warning(f"Could not get git info: {e}")
+                commit_time = datetime.now()
+                commit_hash = "error"
+            
+            # Check cache timestamps
+            cache_dir = Path.home() / ".codebaseiq" / "cache"
+            needs_update = False
+            oldest_cache = None
+            
+            for analysis_type in ['dependency', 'security', 'architecture', 'business_logic', 'technical_stack', 'code_intelligence']:
+                cache_file = cache_dir / f"{root_path.name}_{analysis_type}.json"
+                if cache_file.exists():
+                    cache_mtime = datetime.fromtimestamp(cache_file.stat().st_mtime)
+                    if oldest_cache is None or cache_mtime < oldest_cache:
+                        oldest_cache = cache_mtime
+                else:
+                    needs_update = True
+                    break
+            
+            if not needs_update and oldest_cache and commit_time > oldest_cache:
+                needs_update = True
+                
+            if needs_update:
+                logger.info("Changes detected, updating knowledge foundation...")
+                result = await self._get_and_set_knowledge_foundation(
+                    path=str(root_path),
+                    enable_embeddings=True,
+                    force_refresh=True
+                )
+                result['update_reason'] = 'Codebase changed since last analysis'
+                result['git_commit'] = commit_hash
+                return result
+            else:
+                return {
+                    'status': 'up_to_date',
+                    'message': 'Knowledge foundation is up to date',
+                    'last_analysis': oldest_cache.isoformat() if oldest_cache else 'never',
+                    'latest_commit': commit_hash,
+                    'commit_time': commit_time.isoformat()
+                }
+                
+        except Exception as e:
+            logger.error(f"Update check failed: {e}")
+            return {
+                'status': 'error',
+                'error': str(e),
+                'path': path
+            }
 
 
 
