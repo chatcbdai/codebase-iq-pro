@@ -27,8 +27,24 @@ class EmbeddingAgent(BaseAgent):
         if not context.get('enable_embeddings', True):
             return {
                 'embeddings_created': 0,
+                'embeddings_exists': False,
                 'reason': 'Embeddings disabled'
             }
+        
+        # Check if embeddings already exist
+        try:
+            stats = await self.vector_db.get_stats()
+            if stats and stats.get('total_vectors', 0) > 0:
+                logger.info(f"Embeddings already exist: {stats['total_vectors']} vectors found")
+                return {
+                    'embeddings_created': 0,
+                    'embeddings_exists': True,
+                    'total_existing': stats['total_vectors'],
+                    'vector_db_status': 'synchronized',
+                    'reason': 'Using existing embeddings'
+                }
+        except Exception as e:
+            logger.debug(f"Could not check vector DB stats: {e}")
             
         embeddings_created = 0
         batch = []
@@ -78,6 +94,7 @@ class EmbeddingAgent(BaseAgent):
             
         return {
             'embeddings_created': embeddings_created,
+            'embeddings_exists': embeddings_created > 0,
             'total_entities': len(entities),
             'failed_entities': len(failed_entities),
             'vector_db_status': 'synchronized' if embeddings_created > 0 else 'empty',
