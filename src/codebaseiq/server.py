@@ -918,39 +918,135 @@ class CodebaseIQProServer:
             alternatives.append("This file appears relatively safe to modify with standard precautions")
             
         return alternatives
+    
+    async def _run_with_timeout(self, coro, timeout_seconds: int, task_name: str) -> Any:
+        """Run a coroutine with timeout and progress logging
+        
+        Helps prevent hanging on large codebases and provides visibility
+        """
+        try:
+            logger.info(f"Starting {task_name}...")
+            start_time = datetime.now()
+            
+            # Run with timeout
+            result = await asyncio.wait_for(coro, timeout=timeout_seconds)
+            
+            elapsed = (datetime.now() - start_time).total_seconds()
+            logger.info(f"✅ {task_name} completed in {elapsed:.2f}s")
+            return result
+            
+        except asyncio.TimeoutError:
+            logger.error(f"❌ {task_name} timed out after {timeout_seconds}s")
+            return {
+                'error': f'{task_name} timed out',
+                'timeout': timeout_seconds,
+                'suggestion': 'Try analyzing smaller portions of the codebase'
+            }
+        except Exception as e:
+            logger.error(f"❌ {task_name} failed: {e}")
+            return {
+                'error': f'{task_name} failed: {str(e)}',
+                'exception_type': type(e).__name__
+            }
             
     async def _discover_files(self, root: Path) -> Dict[str, Path]:
-        """Enhanced file discovery with better filtering"""
+        """Enhanced file discovery with better filtering and progress tracking
+        
+        Optimized for large codebases with proper logging and error handling
+        """
         file_map = {}
         ignore_patterns = {
             '.git', 'node_modules', '__pycache__', 'dist', 'build', 
             '.next', 'target', 'out', '.cache', 'coverage', 'venv',
-            '.pytest_cache', '.mypy_cache', '.tox', '.eggs'
+            '.pytest_cache', '.mypy_cache', '.tox', '.eggs', '.idea',
+            '.vscode', 'env', '.env', 'bower_components', 'vendor'
         }
         
+        # Track statistics
+        total_files_seen = 0
+        files_skipped_ignore = 0
+        files_skipped_size = 0
+        files_skipped_binary = 0
+        start_time = datetime.now()
+        
+        logger.info(f"Starting file discovery in: {root}")
+        logger.info(f"Ignoring patterns: {ignore_patterns}")
+        
         # Walk directory tree efficiently
-        for path in root.rglob('*'):
-            # Skip if any parent directory is in ignore list
-            if any(ignored in path.parts for ignored in ignore_patterns):
-                continue
+        try:
+            # Use os.walk for better performance on large directories
+            import os
+            for dirpath, dirnames, filenames in os.walk(root):
+                # Remove ignored directories from dirnames to prevent descending
+                dirnames[:] = [d for d in dirnames if d not in ignore_patterns]
                 
-            if path.is_file():
-                # Check file size
-                try:
-                    size_mb = path.stat().st_size / (1024 * 1024)
-                    if size_mb > self.config.performance_config['max_file_size_mb']:
-                        continue
-                except:
+                # Convert to Path for consistency
+                dir_path = Path(dirpath)
+                
+                # Skip if any parent directory is in ignore list
+                if any(ignored in dir_path.parts for ignored in ignore_patterns):
+                    files_skipped_ignore += len(filenames)
                     continue
+                
+                # Process files in this directory
+                for filename in filenames:
+                    total_files_seen += 1
                     
-                # Check if it's a code file
-                if path.suffix in {'.py', '.js', '.ts', '.jsx', '.tsx', '.java', 
-                                 '.go', '.rs', '.cpp', '.c', '.h', '.hpp',
-                                 '.rb', '.php', '.swift', '.kt', '.scala', '.cs'}:
-                    rel_path = str(path.relative_to(root))
-                    file_map[rel_path] = path
+                    # Log progress every 1000 files
+                    if total_files_seen % 1000 == 0:
+                        logger.info(f"Progress: Scanned {total_files_seen} files, found {len(file_map)} code files")
                     
-        logger.info(f"Discovered {len(file_map)} code files")
+                    path = dir_path / filename
+                    
+                    # Check file size
+                    try:
+                        size_mb = path.stat().st_size / (1024 * 1024)
+                        if size_mb > self.config.performance_config['max_file_size_mb']:
+                            files_skipped_size += 1
+                            logger.debug(f"Skipped large file ({size_mb:.1f}MB): {path}")
+                            continue
+                    except (OSError, IOError) as e:
+                        logger.debug(f"Error accessing file {path}: {e}")
+                        continue
+                    
+                    # Check if it's a code file
+                    if path.suffix.lower() in {'.py', '.js', '.ts', '.jsx', '.tsx', '.java', 
+                                             '.go', '.rs', '.cpp', '.c', '.h', '.hpp', '.cc',
+                                             '.rb', '.php', '.swift', '.kt', '.scala', '.cs',
+                                             '.r', '.m', '.mm', '.vue', '.svelte'}:
+                        rel_path = str(path.relative_to(root))
+                        file_map[rel_path] = path
+                    elif not path.suffix:
+                        # Check for scripts without extensions
+                        try:
+                            with open(path, 'rb') as f:
+                                first_line = f.readline(100)
+                                if first_line.startswith(b'#!') and (b'python' in first_line or 
+                                                                     b'node' in first_line or 
+                                                                     b'ruby' in first_line):
+                                    rel_path = str(path.relative_to(root))
+                                    file_map[rel_path] = path
+                        except:
+                            pass
+                            
+        except Exception as e:
+            logger.error(f"Error during file discovery: {e}")
+            # Continue with what we found so far
+            
+        # Calculate discovery time
+        discovery_time = (datetime.now() - start_time).total_seconds()
+        
+        logger.info(f"File discovery completed in {discovery_time:.2f} seconds")
+        logger.info(f"Total files seen: {total_files_seen}")
+        logger.info(f"Code files found: {len(file_map)}")
+        logger.info(f"Files skipped (ignored dirs): {files_skipped_ignore}")
+        logger.info(f"Files skipped (too large): {files_skipped_size}")
+        
+        if len(file_map) == 0:
+            logger.warning("No code files found! Check your path and ignore patterns.")
+        elif len(file_map) > 1000:
+            logger.warning(f"Large codebase detected ({len(file_map)} files). Analysis may take several minutes.")
+            
         return file_map
         
     def _determine_entity_type(self, path: str) -> str:
@@ -1713,43 +1809,103 @@ Remember: This is an AI-optimized summary. Use individual analysis tools for det
             return {'error': str(e)}
     
     def _extract_file_dependencies(self, dependency_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Extract per-file dependency details from raw dependency data"""
-        file_deps = {}
+        """Extract per-file dependency details from dependency analysis data
         
-        # Check if we have the raw internal/external deps data
-        if 'raw_data' in dependency_data:
-            raw = dependency_data['raw_data']
-            internal_deps = raw.get('internal_deps', {})
-            external_deps = raw.get('external_deps', {})
+        Note: Since the dependency agent doesn't return per-file data by default,
+        we return a summary instead. In a future update, we should modify the
+        dependency agent to return this granular data.
+        """
+        try:
+            # Log what data we actually received for debugging
+            logger.debug(f"Dependency data keys: {list(dependency_data.keys())}")
             
-            for file_path in set(list(internal_deps.keys()) + list(external_deps.keys())):
-                file_deps[file_path] = {
-                    'internal': list(internal_deps.get(file_path, [])),
-                    'external': list(external_deps.get(file_path, [])),
-                    'total': len(internal_deps.get(file_path, [])) + len(external_deps.get(file_path, []))
+            # For now, return a summary since per-file data isn't available
+            # TODO: Modify DependencyAnalysisAgent to return per-file dependencies
+            file_deps = {
+                '_summary': {
+                    'total_files_analyzed': dependency_data.get('total_files', 0),
+                    'files_with_dependencies': dependency_data.get('files_with_deps', 0),
+                    'external_packages': dependency_data.get('external_dependencies', {}),
+                    'internal_dependency_count': dependency_data.get('internal_dependencies', 0),
+                    'note': 'Per-file dependency data not yet available. Use dependency graph for relationships.'
                 }
-        
-        return file_deps
+            }
+            
+            # If we have dependency graph info, add some useful data
+            dep_graph = dependency_data.get('dependency_graph', {})
+            if dep_graph:
+                file_deps['_graph_summary'] = {
+                    'total_nodes': dep_graph.get('nodes', 0),
+                    'total_edges': dep_graph.get('edges', 0),
+                    'has_cycles': len(dep_graph.get('cycles', [])) > 0,
+                    'cycle_count': len(dep_graph.get('cycles', [])),
+                    'most_depended_on': dep_graph.get('most_depended_on', [])[:5],
+                    'most_dependencies': dep_graph.get('most_dependencies', [])[:5]
+                }
+            
+            return file_deps
+            
+        except Exception as e:
+            logger.error(f"Error extracting file dependencies: {e}")
+            return {
+                '_error': f'Failed to extract file dependencies: {str(e)}',
+                '_summary': {'note': 'Dependency extraction failed, see logs for details'}
+            }
     
     def _calculate_transitive_dependencies(self, dependency_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Calculate transitive dependencies from dependency graph"""
-        transitive_deps = {}
+        """Calculate transitive dependencies from dependency graph
         
-        # Get dependency graph if available
-        dep_graph_info = dependency_data.get('dependency_graph', {})
-        if 'raw_graph' in dep_graph_info:
-            # If we have the actual networkx graph
-            graph = dep_graph_info['raw_graph']
-            for node in graph.nodes():
-                # Get all reachable nodes (transitive dependencies)
-                reachable = nx.descendants(graph, node)
-                transitive_deps[node] = {
-                    'direct': list(graph.successors(node)),
-                    'transitive': list(reachable - set(graph.successors(node))),
-                    'total': len(reachable)
+        Note: The dependency agent returns cycles and dependency counts, but not
+        the full graph structure needed for transitive analysis. This method
+        provides what information is available.
+        """
+        try:
+            # Log what data we received for debugging
+            logger.debug(f"Calculating transitive deps from: {list(dependency_data.keys())}")
+            
+            dep_graph_info = dependency_data.get('dependency_graph', {})
+            
+            # Since we don't have the actual graph, provide available info
+            transitive_deps = {
+                '_summary': {
+                    'note': 'Full transitive dependency calculation requires graph structure',
+                    'available_data': {
+                        'total_nodes': dep_graph_info.get('nodes', 0),
+                        'total_edges': dep_graph_info.get('edges', 0),
+                        'has_circular_dependencies': len(dep_graph_info.get('cycles', [])) > 0,
+                        'circular_dependency_count': len(dep_graph_info.get('cycles', []))
+                    }
                 }
-        
-        return transitive_deps
+            }
+            
+            # Include cycle information if available
+            cycles = dep_graph_info.get('cycles', [])
+            if cycles:
+                transitive_deps['circular_dependencies'] = {
+                    'count': len(cycles),
+                    'cycles': cycles[:10],  # Limit to first 10 cycles
+                    'warning': 'Circular dependencies detected - these create transitive loops'
+                }
+            
+            # Include most connected files
+            most_depended = dep_graph_info.get('most_depended_on', [])
+            most_deps = dep_graph_info.get('most_dependencies', [])
+            
+            if most_depended or most_deps:
+                transitive_deps['key_files'] = {
+                    'most_depended_on': most_depended[:10],
+                    'most_dependencies': most_deps[:10],
+                    'note': 'These files likely have the most transitive impact'
+                }
+            
+            return transitive_deps
+            
+        except Exception as e:
+            logger.error(f"Error calculating transitive dependencies: {e}")
+            return {
+                '_error': f'Failed to calculate transitive dependencies: {str(e)}',
+                '_summary': {'note': 'Transitive dependency calculation failed'}
+            }
     
     async def _calculate_language_breakdown(self, file_map: Dict[str, Path]) -> Dict[str, int]:
         """Calculate file count breakdown by language"""
@@ -1795,10 +1951,15 @@ Remember: This is an AI-optimized summary. Use individual analysis tools for det
         return language_counts
     
     async def _extract_env_variables(self, file_map: Dict[str, Path]) -> Dict[str, List[str]]:
-        """Extract environment variable usage from files"""
-        env_vars = {}
+        """Extract environment variable usage from files
         
-        # Common patterns for env var usage
+        Scans common file types for environment variable usage patterns
+        across multiple programming languages.
+        """
+        env_vars = {}
+        errors = []
+        
+        # Common patterns for env var usage across languages
         patterns = [
             r'os\.environ\.get\([\'"](\w+)[\'"]',  # Python os.environ.get
             r'os\.environ\[[\'"](\w+)[\'"]',        # Python os.environ[]
@@ -1812,25 +1973,54 @@ Remember: This is an AI-optimized summary. Use individual analysis tools for det
         
         import re
         
+        # Track statistics
+        files_scanned = 0
+        total_vars_found = 0
+        
         for rel_path, full_path in file_map.items():
             try:
-                # Only check text files
-                if full_path.suffix.lower() in ['.py', '.js', '.ts', '.jsx', '.tsx', '.java', '.go', '.rb', '.sh', '.env']:
+                # Only check text files likely to contain env vars
+                if full_path.suffix.lower() in ['.py', '.js', '.ts', '.jsx', '.tsx', '.java', '.go', '.rb', '.sh', '.env', '.yml', '.yaml']:
+                    files_scanned += 1
+                    
                     async with aiofiles.open(full_path, 'r', encoding='utf-8', errors='ignore') as f:
                         content = await f.read()
                         
                     found_vars = set()
                     for pattern in patterns:
-                        matches = re.findall(pattern, content)
-                        found_vars.update(matches)
+                        try:
+                            matches = re.findall(pattern, content, re.MULTILINE)
+                            # Filter out common false positives
+                            filtered_matches = [m for m in matches if m.upper() == m or '_' in m]
+                            found_vars.update(filtered_matches)
+                        except re.error as e:
+                            logger.warning(f"Regex error in pattern {pattern}: {e}")
                     
                     if found_vars:
-                        env_vars[rel_path] = list(found_vars)
+                        env_vars[rel_path] = sorted(list(found_vars))
+                        total_vars_found += len(found_vars)
                         
-            except Exception:
-                # Skip files that can't be read
+            except PermissionError:
+                errors.append(f"Permission denied: {rel_path}")
+            except UnicodeDecodeError:
+                # Binary file, skip silently
                 pass
-                
+            except Exception as e:
+                logger.debug(f"Error reading {rel_path} for env vars: {e}")
+                errors.append(f"{rel_path}: {str(e)}")
+        
+        # Add summary
+        env_vars['_summary'] = {
+            'files_scanned': files_scanned,
+            'files_with_env_vars': len(env_vars) - 1,  # Exclude _summary
+            'total_unique_vars': total_vars_found,
+            'scan_errors': len(errors),
+            'error_sample': errors[:5] if errors else []
+        }
+        
+        if errors:
+            logger.info(f"Environment variable scan completed with {len(errors)} errors")
+        
         return env_vars
     
     async def _detect_config_files(self, file_map: Dict[str, Path]) -> Dict[str, str]:
@@ -2306,17 +2496,56 @@ Remember: This is an AI-optimized summary. Use individual analysis tools for det
             logger.info("🚀 Starting complete knowledge foundation setup...")
             start_time = datetime.now()
             
-            # Phase 1: 25K Gold Tools (Foundation Data) - Run in parallel
+            # Phase 1: 25K Gold Tools (Foundation Data) - Run in parallel with timeouts
             logger.info("Phase 1: Running 25K Gold tools in parallel...")
-            phase1_results = await asyncio.gather(
-                self._get_dependency_analysis_full(force_refresh=force_refresh),
-                self._get_security_analysis_full(force_refresh=force_refresh),
-                self._get_architecture_analysis_full(force_refresh=force_refresh),
-                self._get_technical_stack_analysis_full(force_refresh=force_refresh),
-                self._get_code_intelligence_analysis_full(force_refresh=force_refresh),
-                self._get_business_logic_analysis_full(force_refresh=force_refresh),
-                return_exceptions=True
-            )
+            
+            # Define timeout based on expected codebase size
+            file_map = await self._discover_files(root_path)
+            file_count = len(file_map)
+            
+            # Scale timeout with codebase size: 60s base + 1s per 10 files
+            analysis_timeout = 60 + (file_count // 10)
+            max_timeout = 600  # 10 minutes max
+            timeout_seconds = min(analysis_timeout, max_timeout)
+            
+            logger.info(f"Setting analysis timeout to {timeout_seconds}s for {file_count} files")
+            
+            # Create tasks with individual logging
+            phase1_tasks = [
+                asyncio.create_task(self._run_with_timeout(
+                    self._get_dependency_analysis_full(force_refresh=force_refresh),
+                    timeout_seconds,
+                    "Dependency Analysis"
+                )),
+                asyncio.create_task(self._run_with_timeout(
+                    self._get_security_analysis_full(force_refresh=force_refresh),
+                    timeout_seconds,
+                    "Security Analysis"
+                )),
+                asyncio.create_task(self._run_with_timeout(
+                    self._get_architecture_analysis_full(force_refresh=force_refresh),
+                    timeout_seconds,
+                    "Architecture Analysis"
+                )),
+                asyncio.create_task(self._run_with_timeout(
+                    self._get_technical_stack_analysis_full(force_refresh=force_refresh),
+                    timeout_seconds,
+                    "Technical Stack Analysis"
+                )),
+                asyncio.create_task(self._run_with_timeout(
+                    self._get_code_intelligence_analysis_full(force_refresh=force_refresh),
+                    timeout_seconds,
+                    "Code Intelligence Analysis"
+                )),
+                asyncio.create_task(self._run_with_timeout(
+                    self._get_business_logic_analysis_full(force_refresh=force_refresh),
+                    timeout_seconds,
+                    "Business Logic Analysis"
+                ))
+            ]
+            
+            # Run with progress tracking
+            phase1_results = await asyncio.gather(*phase1_tasks, return_exceptions=True)
             
             # Check for errors in Phase 1
             phase1_errors = [str(r) for r in phase1_results if isinstance(r, Exception)]
@@ -2366,6 +2595,35 @@ Remember: This is an AI-optimized summary. Use individual analysis tools for det
             else:
                 logger.info("Phase 4: Skipped (embeddings not enabled)")
             
+            # CRITICAL: Store the analysis results so subsequent tools can access them
+            # This was missing and causing phases to not share data!
+            logger.info("Storing analysis results for cross-phase access...")
+            
+            # Build comprehensive analysis results
+            self.current_analysis = {
+                'timestamp': datetime.now().isoformat(),
+                'root_path': str(root_path),
+                'phase1_results': {
+                    'dependency': phase1_results[0] if not isinstance(phase1_results[0], Exception) else {'error': str(phase1_results[0])},
+                    'security': phase1_results[1] if not isinstance(phase1_results[1], Exception) else {'error': str(phase1_results[1])},
+                    'architecture': phase1_results[2] if not isinstance(phase1_results[2], Exception) else {'error': str(phase1_results[2])},
+                    'technical': phase1_results[3] if not isinstance(phase1_results[3], Exception) else {'error': str(phase1_results[3])},
+                    'intelligence': phase1_results[4] if not isinstance(phase1_results[4], Exception) else {'error': str(phase1_results[4])},
+                    'business': phase1_results[5] if not isinstance(phase1_results[5], Exception) else {'error': str(phase1_results[5])}
+                },
+                'context_result': context_result if 'context_result' in locals() else {},
+                'embeddings_enabled': enable_embeddings and self.vector_db,
+                'files_analyzed': len(await self._discover_files(root_path))
+            }
+            
+            # Also store enhanced understanding if it exists
+            if 'phase1_results' in locals() and len(phase1_results) > 5:
+                business_result = phase1_results[5]
+                if not isinstance(business_result, Exception) and 'enhanced_understanding' in business_result:
+                    self.current_analysis['enhanced_understanding'] = business_result['enhanced_understanding']
+            
+            logger.info(f"Analysis results stored. Keys: {list(self.current_analysis.keys())}")
+            
             # Calculate execution time
             execution_time = (datetime.now() - start_time).total_seconds()
             
@@ -2380,7 +2638,8 @@ Remember: This is an AI-optimized summary. Use individual analysis tools for det
                     'phase3_crossing_guards': 'completed' if not context_result.get('error') else 'failed',
                     'phase4_embedders': 'completed' if enable_embeddings and self.vector_db else 'skipped'
                 },
-                'files_analyzed': len(await self._discover_files(root_path)),
+                'files_analyzed': self.current_analysis['files_analyzed'],
+                'analysis_stored': True,  # Indicate that results are available for other tools
                 'next_steps': [
                     'Use individual analysis tools to access specific data',
                     'Use get_codebase_context for aggregated safety context',
