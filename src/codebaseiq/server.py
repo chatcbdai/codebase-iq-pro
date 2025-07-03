@@ -747,6 +747,10 @@ class CodebaseIQProServer(CodebaseIQProServerBase, AnalysisMethods, HelperMethod
                 embedding_agent = EmbeddingAgent(self.vector_db, self.embedding_service)
                 embedding_result = await embedding_agent.analyze(embedding_context)
                 logger.info("✅ Embeddings created successfully")
+                
+                # Update embeddings_ready flag
+                if embedding_result.get('embeddings_exists') or embedding_result.get('embeddings_created', 0) > 0:
+                    self.embeddings_ready = True
             else:
                 logger.info("Phase 4: Skipped (embeddings not enabled)")
                 embedding_result = {'embeddings_created': 0}
@@ -767,6 +771,14 @@ class CodebaseIQProServer(CodebaseIQProServerBase, AnalysisMethods, HelperMethod
                 'business_logic': phase1_results[5] if not isinstance(phase1_results[5], Exception) else {},
                 'embeddings_created': embedding_result.get('embeddings_created', 0)
             }
+            
+            # Save comprehensive analysis to cache
+            try:
+                file_hashes = await self.cache_manager.hash_files(file_map)
+                await self.cache_manager.save_analysis(root_path, "comprehensive", self.current_analysis, file_hashes)
+                logger.info("✅ Saved comprehensive analysis to cache")
+            except Exception as e:
+                logger.warning(f"Failed to save comprehensive analysis: {e}")
             
             elapsed = (datetime.now() - start_time).total_seconds()
             
@@ -831,7 +843,7 @@ class CodebaseIQProServer(CodebaseIQProServerBase, AnalysisMethods, HelperMethod
             oldest_cache = None
             
             for analysis_type in ['dependency', 'security', 'architecture', 'business_logic', 'technical_stack', 'code_intelligence']:
-                cache_file = cache_dir / f"{root_path.name}_{analysis_type}.json"
+                cache_file = self.cache_manager._get_cache_path(root_path, analysis_type)
                 if cache_file.exists():
                     cache_mtime = datetime.fromtimestamp(cache_file.stat().st_mtime)
                     if oldest_cache is None or cache_mtime < oldest_cache:

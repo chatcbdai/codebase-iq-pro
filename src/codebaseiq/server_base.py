@@ -64,6 +64,7 @@ class CodebaseIQProServerBase:
         # State management
         self.current_analysis = None
         self.analysis_cache = {}
+        self.embeddings_ready = False
         
         # Initialize token and cache managers
         self.token_manager = TokenManager()
@@ -149,7 +150,8 @@ class CodebaseIQProServerBase:
             ]
             
             for analysis_type in analysis_types:
-                cache_file = cache_dir / f"{codebase_path.name}_{analysis_type}.json"
+                # Use the cache manager's method to get proper cache path
+                cache_file = self.cache_manager._get_cache_path(codebase_path, analysis_type)
                 if cache_file.exists():
                     # Check if cache is recent (within last 7 days)
                     cache_age = datetime.now() - datetime.fromtimestamp(cache_file.stat().st_mtime)
@@ -169,7 +171,7 @@ class CodebaseIQProServerBase:
             # Restore current_analysis if available
             if restored_count > 0:
                 # Try to load the most recent comprehensive analysis
-                comprehensive_cache = cache_dir / f"{codebase_path.name}_comprehensive.json"
+                comprehensive_cache = self.cache_manager._get_cache_path(codebase_path, "comprehensive")
                 if comprehensive_cache.exists():
                     try:
                         cached_data = await self.cache_manager.load_analysis(codebase_path, "comprehensive")
@@ -185,6 +187,7 @@ class CodebaseIQProServerBase:
                     await self.vector_db.initialize()
                     stats = await self.vector_db.get_stats()
                     if stats and stats.get('total_vectors', 0) > 0:
+                        self.embeddings_ready = True
                         logger.info(f"✅ Vector database ready with {stats['total_vectors']} embeddings")
                 except Exception as e:
                     logger.warning(f"Failed to initialize vector DB: {e}")

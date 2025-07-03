@@ -93,3 +93,9 @@ Thumbs.db
 .claude/
 !.claude/config.md
 CLAUDE.md
+
+# Test codebase (embedded git repo)
+codebase_tester_for_codebaseIQ-pro/
+
+# Additional cache directories
+.codebaseiq_cache/
