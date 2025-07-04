@@ -3,6 +3,7 @@
 [![MCP](https://img.shields.io/badge/MCP-Compatible-blue)](https://github.com/modelcontextprotocol)
 [![Python](https://img.shields.io/badge/Python-3.9%2B-green)](https://www.python.org/)
 [![License](https://img.shields.io/badge/License-MIT-yellow)](LICENSE)
+[![Production Ready](https://img.shields.io/badge/Production-Ready-brightgreen)](docs/PRODUCTION_DEPLOYMENT.md)
 
 ## The Challenge
 

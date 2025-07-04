@@ -99,3 +99,4 @@ codebase_tester_for_codebaseIQ-pro/
 
 # Additional cache directories
 .codebaseiq_cache/
+.early.coverage

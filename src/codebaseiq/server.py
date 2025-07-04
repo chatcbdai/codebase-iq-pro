@@ -45,6 +45,10 @@ class CodebaseIQProServer(CodebaseIQProServerBase, AnalysisMethods, HelperMethod
     def _setup_tools(self):
         """Setup MCP tools"""
         
+        # Store references to handlers for testing
+        self._handle_call_tool = None
+        self._handle_list_tools = None
+        
         @self.server.list_tools()
         async def handle_list_tools() -> list[types.Tool]:
             """List available tools"""
@@ -250,14 +254,27 @@ class CodebaseIQProServer(CodebaseIQProServerBase, AnalysisMethods, HelperMethod
                     }
                 )
             ]
+        
+        # Store reference to list tools handler
+        self._handle_list_tools = handle_list_tools
             
         @self.server.call_tool()
         async def handle_call_tool(
             name: str,
             arguments: Optional[Dict[str, Any]] = None
         ) -> Union[str, List[types.TextContent], List[types.ImageContent], List[types.EmbeddedResource]]:
-            """Handle tool calls"""
+            """Handle tool calls with comprehensive error handling"""
             try:
+                # Validate input
+                if not name:
+                    raise ValueError("Tool name is required")
+                    
+                # Ensure arguments is a dict
+                if arguments is None:
+                    arguments = {}
+                elif not isinstance(arguments, dict):
+                    raise TypeError(f"Arguments must be a dictionary, got {type(arguments)}")
+                
                 logger.info(f"Tool called: {name} with args: {arguments}")
                 
                 if name == "get_codebase_context":
@@ -265,12 +282,18 @@ class CodebaseIQProServer(CodebaseIQProServerBase, AnalysisMethods, HelperMethod
                         refresh=arguments.get('refresh', False) if arguments else False
                     )
                 elif name == "check_understanding":
+                    # Validate required parameter
+                    if not arguments.get('implementation_plan'):
+                        raise ValueError("implementation_plan is required for check_understanding")
                     result = await self._check_understanding(
                         implementation_plan=arguments.get('implementation_plan', ''),
                         files_to_modify=arguments.get('files_to_modify', []),
                         understanding_points=arguments.get('understanding_points', [])
                     )
                 elif name == "get_impact_analysis":
+                    # Validate required parameter
+                    if not arguments.get('file_path'):
+                        raise ValueError("file_path is required for get_impact_analysis")
                     result = await self._get_impact_analysis(
                         file_path=arguments.get('file_path', '')
                     )
@@ -285,6 +308,9 @@ class CodebaseIQProServer(CodebaseIQProServerBase, AnalysisMethods, HelperMethod
                         path=arguments.get('path', '.')
                     )
                 elif name == "semantic_code_search":
+                    # Validate required parameter
+                    if not arguments.get('query'):
+                        raise ValueError("query is required for semantic_code_search")
                     result = await self._semantic_code_search(
                         query=arguments.get('query', ''),
                         top_k=arguments.get('top_k', 10),
@@ -292,6 +318,9 @@ class CodebaseIQProServer(CodebaseIQProServerBase, AnalysisMethods, HelperMethod
                         search_type=arguments.get('search_type', 'semantic')
                     )
                 elif name == "find_similar_code":
+                    # Validate required parameter
+                    if not arguments.get('entity_path'):
+                        raise ValueError("entity_path is required for find_similar_code")
                     result = await self._find_similar_code(
                         entity_path=arguments.get('entity_path', ''),
                         top_k=arguments.get('top_k', 5),
@@ -308,6 +337,9 @@ class CodebaseIQProServer(CodebaseIQProServerBase, AnalysisMethods, HelperMethod
                 elif name == "get_business_context":
                     result = await self._get_business_context()
                 elif name == "get_modification_guidance":
+                    # Validate required parameter
+                    if not arguments.get('file_path'):
+                        raise ValueError("file_path is required for get_modification_guidance")
                     result = await self._get_modification_guidance(
                         file_path=arguments.get('file_path', '')
                     )
@@ -342,14 +374,77 @@ class CodebaseIQProServer(CodebaseIQProServerBase, AnalysisMethods, HelperMethod
                         include_patterns=arguments.get('include_patterns', True)
                     )
                 else:
-                    result = {'error': f'Unknown tool: {name}'}
+                    result = {
+                        'error': f'Unknown tool: {name}',
+                        'type': 'unknown_tool',
+                        'tool': name
+                    }
                     
-                # Return as JSON string
-                return json.dumps(result, indent=2)
+                # Return as list of TextContent
+                return [
+                    types.TextContent(
+                        type="text",
+                        text=json.dumps(result, indent=2)
+                    )
+                ]
                 
+            except ValueError as ve:
+                logger.error(f"Validation error in tool {name}: {ve}")
+                # Return validation error
+                return [
+                    types.TextContent(
+                        type="text",
+                        text=json.dumps({
+                            'error': str(ve),
+                            'type': 'validation_error',
+                            'tool': name
+                        })
+                    )
+                ]
+            except KeyError as ke:
+                logger.error(f"Missing key in tool {name}: {ke}")
+                # Return missing parameter error
+                return [
+                    types.TextContent(
+                        type="text",
+                        text=json.dumps({
+                            'error': f'Missing required parameter: {ke}',
+                            'type': 'missing_parameter',
+                            'tool': name
+                        })
+                    )
+                ]
             except Exception as e:
                 logger.error(f"Tool {name} failed: {e}", exc_info=True)
-                return json.dumps({'error': str(e)})
+                # Return general error
+                return [
+                    types.TextContent(
+                        type="text",
+                        text=json.dumps({
+                            'error': str(e),
+                            'type': 'general_error',
+                            'tool': name,
+                            'traceback': 'Check server logs for detailed traceback'
+                        })
+                    )
+                ]
+        
+        # Store reference to handler for testing
+        self._handle_call_tool = handle_call_tool
+    
+    async def handle_call_tool(self, name: str, arguments: Optional[Dict[str, Any]] = None):
+        """Public method for testing - delegates to the MCP handler"""
+        if self._handle_call_tool:
+            return await self._handle_call_tool(name, arguments)
+        else:
+            raise RuntimeError("Server not properly initialized")
+    
+    async def handle_list_tools(self) -> List[types.Tool]:
+        """Public method for testing - delegates to the MCP handler"""
+        if self._handle_list_tools:
+            return await self._handle_list_tools()
+        else:
+            raise RuntimeError("Server not properly initialized")
                 
     # Core analysis coordination methods
     async def _get_codebase_context(self, refresh: bool = False) -> Dict[str, Any]:
@@ -1167,8 +1262,22 @@ class CodebaseIQProServer(CodebaseIQProServerBase, AnalysisMethods, HelperMethod
 # Entry point
 if __name__ == "__main__":
     try:
+        # Check for production mode
+        production_mode = os.getenv('CODEBASEIQ_PRODUCTION', '').lower() == 'true'
+        
         server = CodebaseIQProServer()
-        asyncio.run(server.run())
+        
+        if production_mode:
+            # Use production wrapper with monitoring
+            from .server_production import ProductionServer
+            prod_server = ProductionServer(server)
+            logger.info("🚀 Starting CodebaseIQ Pro in PRODUCTION mode with monitoring")
+            asyncio.run(prod_server.run_with_monitoring())
+        else:
+            # Standard mode
+            logger.info("🚀 Starting CodebaseIQ Pro in STANDARD mode")
+            asyncio.run(server.run())
+            
     except KeyboardInterrupt:
         print("\n👋 CodebaseIQ Pro Server stopped")
         sys.exit(0)
